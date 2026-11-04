@@ -7,7 +7,7 @@ import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.json.JsonMapper;
 
 public final class SummaryPrompt {
-    public static final String VERSION = "summary.v21-rewrite-tables";
+    public static final String VERSION = "summary.v22-rewrite-sparse-pages";
     private static final int MAX_OVERVIEW_INPUT = 30000;
     private final String template;
     private final String overviewTemplate;

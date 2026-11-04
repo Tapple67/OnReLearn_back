@@ -142,6 +142,58 @@ class SummaryParallelTests {
         return new StreamingSummaryProvider("openai", "http://127.0.0.1:" + server.getAddress().getPort(), "synthetic", "test", "",
             Duration.ofSeconds(5), 2, 16000, "", 3, true);
     }
+    private static final String SPARSE_HEADING = "## 원문에서 확인할 쪽";
+    private static String fullPage(int page) { return pdf(page) + " 본문 글자가 충분한 쪽입니다.".repeat(10); }
+    private static SummaryInput pages(String... texts) {
+        var rows = new ArrayList<SummaryInput.Page>();
+        for (int index = 0; index < texts.length; index++) rows.add(new SummaryInput.Page(index + 1, texts[index], "", null, null));
+        return new SummaryInput("material", "subject", 1, "title", SummaryPrompt.VERSION, rows);
+    }
+    @Test void pagesWithLittleTextAreListedAfterTheSummary() throws Exception {
+        var server = withOverview("", new AtomicInteger(), 200);
+        try {
+            var chunks = new ArrayList<String>();
+            String content = withOverview(server).generate(pages(fullPage(1), "그림 1", "", fullPage(4)), chunks::add).content();
+            assertTrue(content.endsWith(SPARSE_HEADING + "\n\n글자가 적은 쪽입니다. 그림이나 표의 내용이 요약에 빠졌을 수 있으니 원문에서 확인해 주세요.\n\n(p.2) (p.3)\n\n"), content);
+            assertTrue(String.join("", chunks).contains(SPARSE_HEADING), "생성 중 미리보기에도 보여 준다");
+        } finally { server.stop(0); }
+    }
+    @Test void whitespaceDoesNotCountAsTextOnAPage() throws Exception {
+        var server = withOverview("", new AtomicInteger(), 200);
+        try {
+            String padded = pdf(1) + " ".repeat(200) + "끝";
+            assertTrue(withOverview(server).generate(pages(padded)).content().contains(SPARSE_HEADING), "공백을 빼면 글자가 적은 쪽이다");
+        } finally { server.stop(0); }
+    }
+    @Test void aDocumentFullOfTextHasNoSparsePageSection() throws Exception {
+        var server = withOverview("", new AtomicInteger(), 200);
+        try {
+            assertFalse(withOverview(server).generate(pages(fullPage(1), fullPage(2))).content().contains(SPARSE_HEADING));
+        } finally { server.stop(0); }
+    }
+    @Test void learningGoalsAreNotWrittenFromTheSparsePageSection() throws Exception {
+        var overviewBodies = new ArrayList<String>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(Executors.newCachedThreadPool());
+        server.createContext("/", exchange -> {
+            String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            if (!body.contains("학습 목표를 작성")) { reply(exchange, firstPage(body)); return; }
+            synchronized (overviewBodies) { overviewBodies.add(body); }
+            String goal = JSON.writeValueAsString("{\"goal\":\"PAGE_1_PDF 원문 사실 문장을 설명할 수 있다.\"}\n");
+            byte[] bytes = ("data: {\"type\":\"response.output_text.delta\",\"delta\":" + goal + "}\n\ndata: {\"type\":\"response.completed\"}\n\n").getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String content = withOverview(server).generate(pages(fullPage(1), fullPage(2), pdf(3))).content();
+            assertTrue(content.startsWith("## 학습 목표"), content);
+            assertTrue(content.indexOf(SPARSE_HEADING) > content.indexOf("## 1."), content);
+            assertEquals(1, overviewBodies.size());
+            assertFalse(overviewBodies.get(0).contains("원문에서 확인할 쪽"), "목표는 요약 내용으로만 만든다");
+        } finally { server.stop(0); }
+    }
     @Test void learningGoalsAreCheckedAndPlacedAboveTheSummary() throws Exception {
         String goals = "{\"goal\":\"PAGE_1_PDF 원문 사실 문장을 설명할 수 있다.\"}\n"
             + "{\"goal\":\"양자 컴퓨터의 광자 연산을 설명할 수 있다.\"}\n"

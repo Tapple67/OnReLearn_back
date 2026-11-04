@@ -30,7 +30,7 @@ class StreamingSummaryTests {
             });server.start();
             try {
                 var ai=new StreamingSummaryProvider(provider,"http://127.0.0.1:"+server.getAddress().getPort()+"/models/{model}:generateContent","synthetic","test","",Duration.ofSeconds(3),8,16000,"low");
-                var input=new SummaryInput("material","subject",1,"title",SummaryPrompt.VERSION,List.of(new SummaryInput.Page(1,"첫 원문 문장이고 정확히 발췌합니다.","",null,null)));
+                var input=new SummaryInput("material","subject",1,"title",SummaryPrompt.VERSION,List.of(new SummaryInput.Page(1,"첫 원문 문장이고 정확히 발췌합니다. "+"이어지는 원문 문장입니다. ".repeat(10),"",null,null)));
                 var chunks=new ArrayList<String>();
                 if (completionAttempt<=2) assertTrue(ai.generate(input,chunks::add).content().contains("첫 원문 문장이고 정확히 발췌합니다."));
                 else assertEquals(502,assertThrows(ResponseStatusException.class,()->ai.generate(input,chunks::add)).getStatusCode().value());
@@ -91,8 +91,7 @@ class StreamingSummaryTests {
             var chunks=new ArrayList<String>();
             var result=ai.generate(input,chunks::add);
             assertEquals(2,attempts.get());
-            assertEquals(1,chunks.size());
-            assertEquals(chunks.get(0),result.content());
+            assertEquals(String.join("",chunks),result.content());
             assertTrue(result.content().contains("원문 발췌 · "+source+" (p.9)"));
         } finally { server.stop(0); }
     }

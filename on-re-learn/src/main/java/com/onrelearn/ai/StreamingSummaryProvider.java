@@ -15,6 +15,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 public final class StreamingSummaryProvider implements SummaryProvider {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(StreamingSummaryProvider.class);
+    private static final int SPARSE_PAGE_CHARS = 100;
     private final String provider, endpoint, key, model, reasoning;
     private final Duration idle;
     private final int batchPages, batchChars, concurrency;
@@ -137,11 +138,24 @@ public final class StreamingSummaryProvider implements SummaryProvider {
             combined.append(notesWithoutPdf);
             delta.accept(notesWithoutPdf.toString());
         }
+        String sparse=sparsePages(input.pages());
+        if (!sparse.isEmpty()) delta.accept(sparse);
         // * Goals need the finished summary, so they appear once it is saved rather than in the live preview.
         if (overview && batches.size()>1) combined.insert(0,goals(input,combined.toString(),deadline));
+        combined.append(sparse);
         return new SummaryResult(combined.toString(),null,null,provider,model,input.promptVersion());
     }
     private record Batch(SummaryOutline.Section section, java.util.List<SummaryInput.Page> pages) {}
+
+    // * Only text is stored per page, so a title slide is listed too. The wording says "may" for that reason.
+    private static String sparsePages(java.util.List<SummaryInput.Page> pages) {
+        var chips=new java.util.StringJoiner(" ");
+        for (var page : pages) {
+            if (page.pdfText().replaceAll("\\s","").length()<SPARSE_PAGE_CHARS) chips.add("(p."+page.page()+")");
+        }
+        if (chips.length()==0) return "";
+        return "## 원문에서 확인할 쪽\n\n글자가 적은 쪽입니다. 그림이나 표의 내용이 요약에 빠졌을 수 있으니 원문에서 확인해 주세요.\n\n"+chips+"\n\n";
+    }
 
     // * Text waits here until earlier batches are published, so the reader always sees the document order.
     private static final class Fetch {
