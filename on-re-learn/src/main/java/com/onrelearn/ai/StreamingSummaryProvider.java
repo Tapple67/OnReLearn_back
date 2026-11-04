@@ -17,7 +17,7 @@ public final class StreamingSummaryProvider implements SummaryProvider {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(StreamingSummaryProvider.class);
     private final String provider, endpoint, key, model, reasoning;
     private final Duration idle;
-    private final int batchPages, batchChars;
+    private final int batchPages, batchChars, concurrency;
     private final String thinkingLevel;
     private final SummaryPrompt prompt = new SummaryPrompt();
     private final JsonMapper json = JsonMapper.builder().build();
@@ -28,6 +28,11 @@ public final class StreamingSummaryProvider implements SummaryProvider {
         this(provider,endpoint,key,model,reasoning,idle,batchPages,batchChars,"");
     }
     public StreamingSummaryProvider(String provider, String endpoint, String key, String model, String reasoning, Duration idle, int batchPages, int batchChars, String thinkingLevel) {
+        this(provider,endpoint,key,model,reasoning,idle,batchPages,batchChars,thinkingLevel,1);
+    }
+    public StreamingSummaryProvider(String provider, String endpoint, String key, String model, String reasoning, Duration idle, int batchPages, int batchChars, String thinkingLevel, int concurrency) {
+        if (concurrency<1 || concurrency>10) throw new IllegalArgumentException("Invalid summary concurrency");
+        this.concurrency=concurrency;
         this.provider=provider; this.endpoint=endpoint; this.key=key; this.model=model; this.reasoning=reasoning; this.idle=idle;
         this.thinkingLevel=thinkingLevel.strip().toUpperCase(java.util.Locale.ROOT);
         if (!java.util.Set.of("","MINIMAL","LOW","MEDIUM","HIGH").contains(this.thinkingLevel)) throw new IllegalArgumentException("Invalid summary thinking level");
@@ -54,40 +59,52 @@ public final class StreamingSummaryProvider implements SummaryProvider {
         SummaryOutline.Section activeSection=null;
         int subsectionCount=0;
         SummaryNoteLinks noteLinks=sections.isEmpty() ? new SummaryNoteLinks(input.pages(),false) : null;
+        var parts=new java.util.ArrayList<SummaryInput>();
+        for (var batch : batches) {
+            var pages=batch.pages();
+            String title=batch.section()==null ? input.title() : input.title()+" / "+batch.section().title();
+            if (batches.size()>1) title += " (p."+pages.get(0).page()+"–"+pages.get(pages.size()-1).page()+")";
+            parts.add(new SummaryInput(input.materialId(),input.subjectId(),input.week(),title,input.promptVersion(),pages));
+        }
+        // * Only the model calls overlap. Verification stays in order because headings and memo links depend on it.
+        var fetches=new Fetch[batches.size()];
+        var workers=Executors.newFixedThreadPool(concurrency, work -> {
+            var thread=new Thread(work,"summary-batch");
+            thread.setDaemon(true);
+            return thread;
+        });
+        try {
         for (int index=0; index<batches.size(); index++) {
             var batch=batches.get(index);
-            var pages=batch.pages();
             if (batch.section()!=activeSection) {
                 activeSection=batch.section();
                 subsectionCount=0;
                 noteLinks=new SummaryNoteLinks(activeSection.pages(),true);
             }
             if (System.nanoTime()>=deadline) throw failure(504);
-            String title=activeSection==null ? input.title() : input.title()+" / "+activeSection.title();
-            if (batches.size()>1) {
-                title += " (p."+pages.get(0).page()+"–"+pages.get(pages.size()-1).page()+")";
-                
+            for (int ahead=index; ahead<Math.min(index+concurrency,batches.size()); ahead++) {
+                if (fetches[ahead]==null) fetches[ahead]=fetch(parts.get(ahead),deadline,workers);
             }
-            var part=new SummaryInput(input.materialId(),input.subjectId(),input.week(),title,input.promptVersion(),pages);
+            var part=parts.get(index);
             var verification=activeSection==null ? new GroundedSummary(part,delta,index+1)
                     : new GroundedSummary(part,delta,activeSection,subsectionCount);
             verification.linkNotes(noteLinks);
             boolean retried=false;
             try {
-                streamBatch(part,verification,deadline);
+                drain(fetches[index],verification);
                 verification.finishLine();
             } catch (ResponseStatusException failure) {
                 if (!(failure instanceof RetryableStreamFailure) || System.nanoTime()>=deadline
                         || Thread.currentThread().isInterrupted()) throw failure;
                 LOG.warn("Retrying summary batch {}/{} after status {}", index+1, batches.size(), failure.getStatusCode().value());
                 verification.discardIncompleteLine();
-                streamBatch(part,verification,deadline);
+                streamBatch(part,verification::append,deadline);
                 verification.finishLine();
                 retried=true;
             }
             if (!verification.hasVerifiedExcerpts() && !retried && System.nanoTime()<deadline) {
                 LOG.warn("Retrying summary batch {}/{} after no verified excerpts", index+1, batches.size());
-                streamBatch(part,verification,deadline);
+                streamBatch(part,verification::append,deadline);
                 verification.finishLine();
             }
             if (!verification.hasVerifiedExcerpts()) {
@@ -109,6 +126,7 @@ public final class StreamingSummaryProvider implements SummaryProvider {
                 }
             }
         }
+        } finally { workers.shutdownNow(); }
         if (!notesWithoutPdf.isEmpty()) {
             combined.append(notesWithoutPdf);
             delta.accept(notesWithoutPdf.toString());
@@ -116,6 +134,37 @@ public final class StreamingSummaryProvider implements SummaryProvider {
         return new SummaryResult(combined.toString(),null,null,provider,model,input.promptVersion());
     }
     private record Batch(SummaryOutline.Section section, java.util.List<SummaryInput.Page> pages) {}
+
+    // * Text waits here until earlier batches are published, so the reader always sees the document order.
+    private static final class Fetch {
+        private static final Object END=new Object();
+        private final BlockingQueue<Object> events=new LinkedBlockingQueue<>();
+    }
+
+    private Fetch fetch(SummaryInput part, long deadline, ExecutorService workers) {
+        var fetch=new Fetch();
+        workers.execute(() -> {
+            try {
+                streamBatch(part,fetch.events::add,deadline);
+                fetch.events.add(Fetch.END);
+            } catch (RuntimeException problem) { fetch.events.add(problem); }
+        });
+        return fetch;
+    }
+
+    private void drain(Fetch fetch, GroundedSummary verification) {
+        try {
+            while (true) {
+                Object event=fetch.events.take();
+                if (event==Fetch.END) return;
+                if (event instanceof RuntimeException problem) throw problem;
+                verification.append((String) event);
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw failure(503);
+        }
+    }
 
     private java.util.List<java.util.List<SummaryInput.Page>> split(java.util.List<SummaryInput.Page> pages) {
         var batches=new java.util.ArrayList<java.util.List<SummaryInput.Page>>();
@@ -136,7 +185,7 @@ public final class StreamingSummaryProvider implements SummaryProvider {
         return batches;
     }
 
-    private void streamBatch(SummaryInput input, GroundedSummary verification, long deadline) {
+    private void streamBatch(SummaryInput input, Consumer<String> sink, long deadline) {
         if (key.isBlank() || key.contains("\n") || key.contains("\r") || !model.matches("[A-Za-z0-9._-]+") || idle.toMillis()<1)
             throw failure(503);
         boolean gemini=provider.equals("gemini");
@@ -201,7 +250,7 @@ public final class StreamingSummaryProvider implements SummaryProvider {
                         if (type.equals("response.completed")) completed=true;
                         if (type.equals("error") || type.equals("response.failed") || type.equals("response.incomplete") || type.contains("refusal")) throw failure(502);
                     }
-                    if (!chunk.isEmpty()) verification.append(chunk);
+                    if (!chunk.isEmpty()) sink.accept(chunk);
                     if (completed) break;
                 }
                 if (!completed) throw new RetryableStreamFailure(expired.get() ? 504 : 502);

@@ -16,7 +16,8 @@ public class AiProviderConfiguration {
         var streaming = new StreamingSummaryProvider(settings.provider, settings.endpoint, settings.key, settings.model, settings.reasoning, settings.timeout,
                 env.getProperty("onrelearn.ai.summary.batch-pages", Integer.class, 8),
                 env.getProperty("onrelearn.ai.summary.batch-chars", Integer.class, 16000),
-                env.getProperty("onrelearn.ai.summary.thinking-level", ""));
+                env.getProperty("onrelearn.ai.summary.thinking-level", ""),
+                env.getProperty("onrelearn.ai.summary.concurrency", Integer.class, 3));
         return streaming;
     }
 
