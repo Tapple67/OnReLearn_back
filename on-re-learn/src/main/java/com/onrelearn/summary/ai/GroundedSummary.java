@@ -16,6 +16,9 @@ public final class GroundedSummary {
     private static final int MAX_CLAIMS_PER_BATCH=60;
     private static final int MAX_SUB_POINTS=6;
     private static final int MAX_GOALS=4;
+    private static final int MAX_TABLE_COLUMNS=4;
+    private static final int MAX_TABLE_ROWS=12;
+    private static final int MAX_TABLE_CELL=80;
     private static final int MIN_SENTENCE_LENGTH=8;
     private static final int MAX_SENTENCE_LENGTH=300;
     private static final int MAX_EXCERPT_LENGTH=360;
@@ -96,7 +99,8 @@ public final class GroundedSummary {
     private void verify(String line) {
         try {
             var value=json.readTree(line);
-            if (value==null || !value.isObject() || !value.path("page").isIntegralNumber() || !value.path("page").canConvertToInt() || !value.path("quote").isString()) return;
+            if (value!=null && value.path("table").isObject()) { publishTable(value); return; }
+            if (value==null || !value.isObject() ||!value.path("page").isIntegralNumber() || !value.path("page").canConvertToInt() || !value.path("quote").isString()) return;
             int page=value.path("page").asInt();
             var source=input.pages().stream().filter(p -> p.page()==page).findFirst().orElse(null);
             if (source==null || source.pdfText().isBlank()) return;
@@ -160,6 +164,55 @@ public final class GroundedSummary {
         }
         accepted.append(text);
         publish.accept(text.toString());
+    }
+
+    // * Each row carries one page and quote and is checked like a sentence. A table is only useful with two rows left.
+    // ! Term overlap cannot notice values swapped between columns; the row's page chip lets the learner check it.
+    private void publishTable(JsonNode value) {
+        var table=value.path("table");
+        var headers=cells(table.path("headers"));
+        boolean headersFromSource=headers.size()>=2 && headers.size()<=MAX_TABLE_COLUMNS && headers.stream().skip(1)
+                .allMatch(header -> input.pages().stream().anyMatch(page -> SourceEvidence.related(header,page.pdfText())));
+        if (!headersFromSource) { count("table"); return; }
+        var rows=new StringBuilder();
+        var keys=new ArrayList<String>();
+        var concepts=new LinkedHashMap<String,Integer>();
+        for (var row : table.path("rows")) {
+            if (keys.size()>=MAX_TABLE_ROWS) break;
+            var cells=cells(row.path("cells"));
+            int page=row.path("page").canConvertToInt() ? row.path("page").asInt() : -1;
+            var source=input.pages().stream().filter(candidate -> candidate.page()==page).findFirst().orElse(null);
+            if (source==null || cells.size()!=headers.size()) { count("table"); continue; }
+            String joined=String.join(" ",cells);
+            if (!grounded(joined,source,row.path("quote").asString(""))) continue;
+            String key=SourceEvidence.compact(joined);
+            if (keys.contains(key) || documentClaims.contains(key)) { count("duplicate"); continue; }
+            keys.add(key);
+            rows.append("| ").append(String.join(" | ",cells)).append(" | (p.").append(page).append(") |\n");
+            concepts.put(joined,page);
+        }
+        if (keys.size()<2) { count("table"); return; }
+        documentClaims.addAll(keys);
+        keys.forEach(key -> count("accepted"));
+        String topic=title(value.path("topic").asString(""),60,input.pages());
+        var text=new StringBuilder(heading(title(value.path("section").asString(""),70,input.pages()),topic.isEmpty() ? "비교" : topic));
+        text.append("| ").append(String.join(" | ",headers)).append(" | 쪽 |\n").append(rows).append("\n");
+        // * The compared subjects are often named only in the header row.
+        if (noteLinks!=null) concepts.forEach((concept,page) -> text.append(noteLinks.takeFor(page,String.join(" ",headers)+" "+concept)));
+        accepted.append(text);
+        publish.accept(text.toString());
+    }
+
+    // * The stored table is read line by line, so a cell cannot carry a separator or its own page mark.
+    private static List<String> cells(JsonNode values) {
+        var cells=new ArrayList<String>();
+        for (var value : values) {
+            String cell=value.isString() ? PAGE_MARK.matcher(SourceEvidence.normalize(value.asString()).replace("|"," ")).replaceAll("") : "";
+            cell=SourceEvidence.normalize(cell.replace("*","").replace("`",""));
+            if (cell.isEmpty() || cell.length()>MAX_TABLE_CELL) return List.of();
+            cells.add(cell);
+        }
+        return cells;
     }
 
     // ! Overlap shows the sentence comes from this page, not that it is true; the page chip lets the learner check it.

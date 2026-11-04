@@ -40,6 +40,77 @@ class SummaryRewriteTests {
         assertTrue(output.contains("1. " + CLAIM + " (p.1)"), output);
         assertFalse(output.contains(DEFINITION), output);
     }
+    private static final String COMPARED = "MD5의 출력은 128비트이고 블록 크기는 512비트이다.\n\nSHA-256의 출력은 256비트이고 블록 크기는 512비트이다.";
+    private static final String MD5_LINE = "MD5의 출력은 128비트이고 블록 크기는 512비트이다.";
+    private static final String SHA_LINE = "SHA-256의 출력은 256비트이고 블록 크기는 512비트이다.";
+    private static Map<String, Object> row(String quote, String... cells) {
+        return Map.of("cells", List.of(cells), "page", 1, "quote", quote);
+    }
+    private static String table(List<String> headers, List<Map<String, Object>> rows) {
+        return JSON.writeValueAsString(Map.of("section", "해시 함수 비교", "topic", "MD5와 SHA-256",
+            "table", Map.of("headers", headers, "rows", rows))) + "\n";
+    }
+    private static final List<String> HEADERS = List.of("구분", "MD5", "SHA-256");
+    private static final Map<String, Object> OUTPUT_ROW = row(MD5_LINE, "출력", "128비트", "256비트");
+    private static final Map<String, Object> BLOCK_ROW = row(SHA_LINE, "블록 크기", "512비트", "512비트");
+
+    private static GroundedSummary tableGate(String... lines) {
+        var gate = new GroundedSummary(new SummaryInput("m", "s", 1, "t", SummaryPrompt.VERSION,
+            List.of(new SummaryInput.Page(1, COMPARED, "", null, null))), text -> {});
+        for (String value : lines) gate.append(value);
+        return gate;
+    }
+
+    @Test void comparisonIsPublishedAsTableWithAPagePerRow() {
+        String output = tableGate(table(HEADERS, List.of(OUTPUT_ROW, BLOCK_ROW))).finish();
+        assertTrue(output.contains("| 구분 | MD5 | SHA-256 | 쪽 |\n| 출력 | 128비트 | 256비트 | (p.1) |\n| 블록 크기 | 512비트 | 512비트 | (p.1) |\n\n"), output);
+        assertTrue(output.contains("### 1.1 MD5와 SHA-256"), output);
+    }
+    @Test void tableRowWithoutEvidenceIsDropped() {
+        String output = tableGate(table(HEADERS, List.of(OUTPUT_ROW, BLOCK_ROW,
+            row("원문에 전혀 없는 인용 문장입니다.", "속도", "빠름", "느림"),
+            row(MD5_LINE, "내부 상태", "128비트", "1024비트")))).finish();
+        assertFalse(output.contains("속도"), output);
+        assertFalse(output.contains("1024"), output);
+        assertTrue(output.contains("| 블록 크기 |"), output);
+    }
+    @Test void memoOnThePageFollowsItsTable() {
+        String output = summarizeWith(COMPARED, "MD5 출력 길이 다시 보기", table(HEADERS, List.of(OUTPUT_ROW, BLOCK_ROW)));
+        assertTrue(output.indexOf("> 추가 설명 ·") > output.indexOf("| 블록 크기 |"), output);
+        assertFalse(output.contains("메모 보충"), output);
+    }
+    @Test void tableNeedsTwoVerifiedRows() {
+        var gate = tableGate(table(HEADERS, List.of(OUTPUT_ROW, row("원문에 전혀 없는 인용 문장입니다.", "속도", "빠름", "느림"))));
+        assertFalse(gate.hasVerifiedExcerpts());
+        assertEquals(1, gate.statistics().get("table"));
+    }
+    @Test void tableHeaderMustComeFromTheSource() {
+        assertFalse(tableGate(table(List.of("구분", "MD5", "양자 컴퓨터"), List.of(OUTPUT_ROW, BLOCK_ROW))).hasVerifiedExcerpts());
+    }
+    @Test void tableRowWithWrongColumnCountIsDropped() {
+        String output = tableGate(table(HEADERS, List.of(OUTPUT_ROW, BLOCK_ROW, row(MD5_LINE, "MD5", "128비트")))).finish();
+        assertFalse(output.contains("| MD5 | 128비트 |"), output);
+    }
+    @Test void tableCellCannotBreakTheStoredLine() {
+        String output = tableGate(table(HEADERS, List.of(row(MD5_LINE, "출력 | 길이\n## 제목", "128비트 (p.9)", "**256비트**"), BLOCK_ROW))).finish();
+        assertTrue(output.contains("| 출력 길이 ## 제목 | 128비트 | 256비트 | (p.1) |"), output);
+    }
+    @Test void oversizedTableKeepsItsFirstRows() {
+        var rows = new ArrayList<Map<String, Object>>();
+        var pdf = new StringBuilder(COMPARED);
+        for (int index = 1; index <= 20; index++) {
+            String source = "MD5와 SHA-256의 항목 " + index + " 비교 내용이다.";
+            pdf.append("\n\n").append(source);
+            rows.add(row(source, "항목 " + index, "비교 내용", "비교 내용"));
+        }
+        var gate = new GroundedSummary(new SummaryInput("m", "s", 1, "t", SummaryPrompt.VERSION,
+            List.of(new SummaryInput.Page(1, pdf.toString(), "", null, null))), text -> {});
+        gate.append(table(HEADERS, rows));
+        String output = gate.finish();
+        assertEquals(13, output.lines().filter(line -> line.startsWith("| ")).count(), output);
+        assertTrue(output.contains("| 항목 12 |"), output);
+        assertFalse(output.contains("| 항목 13 |"), output);
+    }
     @Test void quoteMissingFromThePageIsRejected() {
         assertFalse(accepted(CLAIM, "원문에 전혀 없는 인용 문장입니다."));
     }
