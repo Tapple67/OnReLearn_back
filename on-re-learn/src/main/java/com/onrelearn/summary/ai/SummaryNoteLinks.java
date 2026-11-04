@@ -9,17 +9,20 @@ import java.util.regex.Pattern;
 /** Links saved note excerpts to actual PDF text in the same section. */
 public final class SummaryNoteLinks {
     private static final Pattern WORD = Pattern.compile("[\\p{L}][\\p{L}\\p{N}]+");
+    private static final Pattern INSTRUCTION = Pattern.compile("(?i)(무시|프롬프트|시스템\\s*(지시|명령)|명령.{0,8}실행|ignore|prompt|https?://)");
+    private static final int MIN_DISTINCTIVE_TERM = 3, MIN_SENTENCE = 12, MIN_SLIDE_LINE = 8, MAX_PASSAGE = 240;
     private static final Set<String> COMMON = Set.of("이해", "어렵", "무엇", "어떻", "왜", "질문",
             "관련", "설명", "개념", "내용", "페이지", "공부", "헷갈", "한다", "있는", "있다",
             "쉽게", "쉬운", "쉽게 설명", "알려줘", "설명해줘", "모르겠어", "비교", "차이", "예시",
-            "예제", "이유", "중요", "시험", "다시", "부탁", "어려워", "어렵다", "복습",
+            "예제", "이유", "중요", "시험", "다시", "부탁", "어려워", "어렵다", "어려운", "복습",
+            "부분", "무슨", "말인지", "여기", "이거", "이게", "이건", "복잡", "복잡해", "복잡하다",
             "the", "and", "what", "how", "this", "that", "with", "about");
     private record Passage(int page, String text, Set<String> terms) {}
     private record Link(int notePage, String note, Passage evidence, Set<String> terms) {}
     private enum Intent {
         EASY("핵심 표현부터 읽어 보세요"), COMPARE("두 개념의 차이를 확인해 보세요"),
         EXAMPLE("원문에서 예시나 적용 상황을 찾아보세요"), REASON("원문에서 이유와 결과를 확인해 보세요"),
-        REVIEW("복습할 핵심 표현을 확인해 보세요"), UNSUPPORTED("");
+        REVIEW("복습할 핵심 표현을 확인해 보세요"), GENERAL("메모와 관련된 원문을 확인해 보세요"), INSTRUCTION("");
 
         private final String guide;
         Intent(String guide) { this.guide = guide; }
@@ -42,34 +45,39 @@ public final class SummaryNoteLinks {
     }
 
     private static Set<String> matchedTerms(Link link) {
-        var concepts = new TreeSet<>(link.terms());
-        concepts.retainAll(link.evidence().terms());
-        return Collections.unmodifiableSet(concepts);
+        return Collections.unmodifiableSet(new TreeSet<>(shared(link.terms(),link.evidence().terms())));
     }
 
     private static Intent intent(String note) {
-        if (note.matches("(?i).*(무시|프롬프트|시스템\\s*(지시|명령)|명령.{0,8}실행|ignore|prompt|https?://).*"))
-            return Intent.UNSUPPORTED;
-        if (note.matches(".*(쉽게|쉬운|초보|헷갈|모르겠|어렵|어려워).*")) return Intent.EASY;
+        if (INSTRUCTION.matcher(note).find()) return Intent.INSTRUCTION;
+        if (note.matches(".*(쉽게|쉬운|초보|헷갈|모르겠|어려|복잡|풀어\\s*(줘|서|설명)|이해\\s*(가|를|이)?\\s*(안|못)|무슨\\s*(말|소리)|뭔\\s*(말|소리)).*")) return Intent.EASY;
         if (note.matches(".*(비교|차이|구분).*")) return Intent.COMPARE;
         if (note.matches(".*(예시|예제|사례).*")) return Intent.EXAMPLE;
         if (note.matches(".*(왜|이유|원인|어떻게|누가).*")) return Intent.REASON;
         if (note.matches(".*(복습|중요|시험|다시 볼).*")) return Intent.REVIEW;
-        return Intent.UNSUPPORTED;
+        return Intent.GENERAL;
+    }
+
+    // ! Memos reach the model as study data; lines that look like instructions never do.
+    public static String promptSafe(String note) {
+        return note.lines().filter(line -> !INSTRUCTION.matcher(line).find())
+                .collect(java.util.stream.Collectors.joining("\n"));
     }
     private final List<Link> pending = new ArrayList<>();
 
     public SummaryNoteLinks(List<Page> pages, boolean searchSection) {
         if (pages.stream().allMatch(page -> page.note().isBlank())) return;
-        var passages = pages.stream().flatMap(page -> excerpts(page.pdfText().split("\\R\\s*\\R")).stream()
-                .filter(text -> text.length()>=12 && text.length()<=240)
+        var passages = pages.stream().flatMap(page -> passages(page.pdfText()).stream()
                 .map(text -> new Passage(page.page(),text,terms(text)))).toList();
         for (var page : pages) {
             for (String note : excerpts(page.note().split("\\R"))) {
-                if (intent(note) == Intent.UNSUPPORTED) continue;
+                var intent = intent(note);
+                if (intent == Intent.INSTRUCTION) continue;
                 var keywords = terms(note);
                 var evidence = best(passages,keywords,page.page(),true);
                 if (evidence==null && searchSection) evidence=best(passages,keywords,page.page(),false);
+                // * The model already reads requests like "핵심만 정리해줘"; only real questions stay listed.
+                if (intent == Intent.GENERAL && evidence == null) continue;
                 pending.add(new Link(page.page(),note,evidence,keywords));
             }
         }
@@ -87,15 +95,34 @@ public final class SummaryNoteLinks {
     }
 
     private static int score(Set<String> note, Set<String> source) {
-        int matches=0;
-        boolean distinctive=false;
+        var matches=shared(note,source);
+        boolean distinctive=matches.stream().anyMatch(term -> term.length()>=MIN_DISTINCTIVE_TERM);
+        return matches.size()>=2 || distinctive ? matches.size() : 0;
+    }
+
+    // * Prefix matching absorbs Korean particles that the ending list misses, such as 대칭키랑 and 대칭키.
+    private static Set<String> shared(Set<String> note, Set<String> source) {
+        var matches=new LinkedHashSet<String>();
         for (String term : note) {
-            if (source.contains(term)) {
-                matches++;
-                distinctive|=term.length()>=4;
+            if (source.stream().anyMatch(word -> word.startsWith(term) || term.startsWith(word))) matches.add(term);
+        }
+        return matches;
+    }
+
+    // * PDF text keeps single line breaks only, so an unpunctuated slide page is compared line by line.
+    private static List<String> passages(String pdfText) {
+        var passages=new LinkedHashSet<String>();
+        for (String block : pdfText.split("\\R\\s*\\R")) {
+            for (String sentence : excerpts(new String[]{block})) {
+                if (sentence.length()<=MAX_PASSAGE) {
+                    if (sentence.length()>=MIN_SENTENCE) passages.add(sentence);
+                    continue;
+                }
+                block.lines().map(SourceEvidence::normalize)
+                        .filter(line -> line.length()>=MIN_SLIDE_LINE && line.length()<=MAX_PASSAGE).forEach(passages::add);
             }
         }
-        return matches>=2 || distinctive ? matches : 0;
+        return List.copyOf(passages);
     }
 
     private static Set<String> terms(String text) {
@@ -135,6 +162,22 @@ public final class SummaryNoteLinks {
         return output.toString();
     }
 
+    // ! Only a saved difficulty memo unlocks a model-written explanation; each memo unlocks one.
+    List<String> takeDifficulties(int page, String concept) {
+        var keywords=terms(concept);
+        var memos=new ArrayList<String>();
+        var iterator=pending.iterator();
+        while (iterator.hasNext()) {
+            var link=iterator.next();
+            if (intent(link.note())!=Intent.EASY) continue;
+            boolean pageWide=link.terms().isEmpty() && link.notePage()==page;
+            if (!pageWide && score(link.terms(),keywords)==0) continue;
+            memos.add("> 내 메모 · "+link.note()+" (p."+link.notePage()+")\n\n");
+            iterator.remove();
+        }
+        return memos;
+    }
+
     public String finish() {
         var output=new StringBuilder();
         var questions=new StringBuilder();
@@ -143,8 +186,7 @@ public final class SummaryNoteLinks {
                 questions.append("> 내 메모 · ").append(link.note()).append(" (p.").append(link.notePage()).append(")\n\n");
                 continue;
             }
-            String topic=link.terms().stream().filter(link.evidence().terms()::contains)
-                    .max(Comparator.comparingInt(String::length)).orElseThrow();
+            String topic=matchedTerms(link).stream().max(Comparator.comparingInt(String::length)).orElseThrow();
             output.append("### ").append(topic).append(" · 메모 보충\n\n");
             append(output,link);
         }

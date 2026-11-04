@@ -25,10 +25,18 @@ class QuizPromptTests {
         assertTrue(prompt.contains("literal %s ${summaryMarkdown}"));
         assertTrue(prompt.contains("private note"));
         assertTrue(prompt.contains("PDF evidence"));
-        assertTrue(prompt.contains("최대 0개"));
+        assertTrue(prompt.contains("최대 1개"));
         assertFalse(prompt.contains("60%"));
         assertTrue(prompt.contains("evidence.page"));
-        assertEquals("quiz_v9_grounded_concepts",QuizPrompt.VERSION);
+        assertEquals("quiz_v12_memo_requests",QuizPrompt.VERSION);
+    }
+    @Test void earlierGroundedConceptQuizzesAreNotFlaggedAsUnverified() {
+        assertTrue(QuizPrompt.grounded(QuizPrompt.VERSION));
+        assertTrue(QuizPrompt.grounded("quiz_v11_memo_aware"));
+        assertTrue(QuizPrompt.grounded("quiz_v10_source_based"));
+        assertTrue(QuizPrompt.grounded("quiz_v9_grounded_concepts"));
+        assertFalse(QuizPrompt.grounded("quiz_v6"));
+        assertFalse(QuizPrompt.grounded(null));
     }
     @Test void distinguishesReviewFocusAndCopiesEvidence() {
         var evidence = json.createObjectNode().put("page",2);

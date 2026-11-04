@@ -65,7 +65,7 @@ class StreamingSummaryTests {
             for(int n=1;n<=78;n++) {
                 String all=String.join("",requests);
                 assertEquals(1,all.split("PAGE_"+n+"_PDF",-1).length-1);
-                assertFalse(all.contains("PAGE_"+n+"_NOTE"));
+                assertEquals(1,all.split("PAGE_"+n+"_NOTE",-1).length-1);
             }
             assertFalse(requests.get(0).contains("PAGE_9_PDF"));
         } finally {server.stop(0);}

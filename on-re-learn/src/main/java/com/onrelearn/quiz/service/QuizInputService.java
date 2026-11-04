@@ -64,7 +64,7 @@ public class QuizInputService {
                 purpose, focus, sourceTopics, sourceItemIds, reviewAttemptId);
     }
 
-    private QuizContext groundedContext(String summary, SummaryInput packet, List<Double> preferredPages) {
+    public static QuizContext groundedContext(String summary, SummaryInput packet, List<Double> preferredPages) {
         var selected=QuizContext.assemble(summary,packet,preferredPages);
         var memoFocus = SummaryNoteLinks.quizFocus(packet.pages());
         var selectedPages = new java.util.HashSet<Integer>();
@@ -85,7 +85,8 @@ public class QuizInputService {
                     .limit(3).toList().forEach(page -> selectedPages.add(page.page()));
         }
         var originals = packet.pages().stream().filter(page -> selectedPages.contains(page.page()))
-                .map(page -> new QuizContext.SourcePage(page.page(), page.pdfText(), "", null)).toList();
+                .map(page -> new QuizContext.SourcePage(page.page(), page.pdfText(),
+                        SummaryNoteLinks.promptSafe(page.note()), page.noteSignals())).toList();
         return new QuizContext(summary, selected.notes(), originals, memoFocus);
     }
 

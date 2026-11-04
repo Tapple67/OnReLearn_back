@@ -7,7 +7,7 @@ import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.json.JsonMapper;
 
 public final class SummaryPrompt {
-    public static final String VERSION = "summary.v15-grounded-signals";
+    public static final String VERSION = "summary.v17-memo-explanations";
     private final String template;
     private final JsonMapper json = JsonMapper.builder().build();
 
@@ -28,8 +28,8 @@ public final class SummaryPrompt {
             var row = pages.addObject();
             row.put("page", page.page());
             row.put("pdfText", page.pdfText());
-            // ! Saved notes are interpreted locally as study signals.
-            row.put("note", "");
+            // ! Notes steer which source text is selected; GroundedSummary still accepts PDF quotes only.
+            row.put("note", SummaryNoteLinks.promptSafe(page.note()));
             row.set("noteSignals", page.noteSignals() == null ? json.nullNode() : page.noteSignals());
         }
         // * Formatting arguments are inserted once; placeholder-like user text stays literal.

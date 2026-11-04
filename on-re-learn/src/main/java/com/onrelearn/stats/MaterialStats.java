@@ -89,7 +89,7 @@ public final class MaterialStats {
                 ? new Understanding("NONE", "통계 없음", "아직 제출된 퀴즈 결과가 없습니다.")
                 : understanding(accuracy),
             typeStats, purposeStats, trend, weak, trend.isEmpty()
-                ? List.of("먼저 이 파일에 대해 퀴즈를 풀어보세요.")
+                ? List.of("먼저 이 자료에 대해 퀴즈를 풀어보세요.")
                 : recommendations(accuracy, typeStats, weak));
     }
 
@@ -98,15 +98,15 @@ public final class MaterialStats {
         return total <= 0 ? 0 : round1((double) correct / total * 100);
     }
     private static Understanding understanding(double accuracy) {
-        if (accuracy >= 85) return new Understanding("HIGH", "이해도 높음", "이 파일의 전반적인 이해도가 높은 편입니다.");
+        if (accuracy >= 85) return new Understanding("HIGH", "이해도 높음", "이 자료의 전반적인 이해도가 높은 편입니다.");
         if (accuracy >= 70) return new Understanding("MID_HIGH", "이해도 보통 이상", "핵심 내용은 이해했지만 일부 개념 점검이 필요합니다.");
-        if (accuracy >= 50) return new Understanding("MID_LOW", "일부 복습 필요", "이 파일의 핵심 개념을 한 번 더 점검하는 것이 좋습니다.");
-        return new Understanding("LOW", "복습 권장", "이 파일은 전반적인 복습이 필요합니다.");
+        if (accuracy >= 50) return new Understanding("MID_LOW", "일부 복습 필요", "이 자료의 핵심 개념을 한 번 더 점검하는 것이 좋습니다.");
+        return new Understanding("LOW", "복습 권장", "이 자료는 전반적인 복습이 필요합니다.");
     }
     private static List<String> recommendations(double accuracy, Map<String, Accuracy> types,
                                                 List<MaterialTopicStats.Topic> weak) {
         var messages = new LinkedHashSet<String>();
-        if (accuracy < 50) messages.add("이 파일은 전반적으로 다시 점검하는 것이 좋습니다.");
+        if (accuracy < 50) messages.add("이 자료는 전반적으로 다시 점검하는 것이 좋습니다.");
         else if (accuracy < 70) messages.add("핵심 개념을 중심으로 한 번 더 복습해보세요.");
         var labels = Map.of("short", "서술형 문제에서 개념 설명이 부족할 수 있습니다.",
             "mcq", "객관식 문제에서 선지 구분 연습이 필요합니다.",

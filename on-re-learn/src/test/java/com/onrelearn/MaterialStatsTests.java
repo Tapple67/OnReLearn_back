@@ -16,7 +16,7 @@ class MaterialStatsTests {
             List.of(new Attempt("open", "IN_PROGRESS", 90, 100, null, List.of())))));
         assertEquals(new Summary(0, 0, 0, 0, 0, 0, 0, 0), empty.summary());
         assertEquals("NONE", empty.understanding().level());
-        assertEquals(List.of("먼저 이 파일에 대해 퀴즈를 풀어보세요."), empty.recommendations());
+        assertEquals(List.of("먼저 이 자료에 대해 퀴즈를 풀어보세요."), empty.recommendations());
         assertTrue(empty.trend().isEmpty());
         assertEquals(3, empty.typeStats().size());
         assertEquals(3, empty.purposeStats().size());
@@ -49,7 +49,7 @@ class MaterialStatsTests {
         assertEquals(new Purpose(1, 0, 0, 0, 0), result.purposeStats().get("WEAK_TOPIC"));
         assertEquals(33.3, result.trend().get(2).accuracy());
         assertEquals(List.of("B", "C", "A"), result.weakTopics().stream().map(t -> t.topic()).toList());
-        assertEquals(List.of("이 파일은 전반적으로 다시 점검하는 것이 좋습니다.",
+        assertEquals(List.of("이 자료는 전반적으로 다시 점검하는 것이 좋습니다.",
             "서술형 문제에서 개념 설명이 부족할 수 있습니다.",
             "객관식 문제에서 선지 구분 연습이 필요합니다.",
             "OX 문제에서 기본 개념 구분을 다시 확인해보세요.",

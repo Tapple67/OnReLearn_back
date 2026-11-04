@@ -114,7 +114,7 @@ public class SubjectService {
         }
         if (storageFailed) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                "과목은 삭제됐지만 일부 파일 삭제가 남았습니다. 미완료 파일 삭제에서 다시 시도해 주세요.");
+                "과목은 삭제됐지만 일부 자료 삭제가 남았습니다. 미완료 자료 삭제에서 다시 시도해 주세요.");
         }
     }
 

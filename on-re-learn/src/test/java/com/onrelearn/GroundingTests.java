@@ -130,7 +130,7 @@ class GroundingTests {
         first.putArray("choices").add("평평하다").add("화성").add("둥글다");
         first.putObject("answerKey").put("correctIndex", 2);
         for (int page = 2; page <= 3; page++) {
-            var copy = first.deepCopy().put("question", "객관식 개념 질문 " + page);
+            var copy = first.deepCopy().put("question", "지구 판단 " + page);
             ((tools.jackson.databind.node.ObjectNode) copy.path("evidence")).put("page", page);
             items.add(copy);
         }
@@ -176,7 +176,7 @@ class GroundingTests {
         var mcq=GroundedQuiz.verify(quiz("mcq"),context(),new QuizSpec(1,0,0)).path("items").get(0);
         assertEquals("지구는 평평하다", mcq.path("question").asString());assertEquals(0,mcq.path("answerKey").path("correctIndex").intValue());
         var shortItem=GroundedQuiz.verify(quiz("short"),context(),new QuizSpec(0,0,1)).path("items").get(0);
-        assertEquals(1,shortItem.path("answerKey").path("accepted").size());
+        assertEquals(2,shortItem.path("answerKey").path("accepted").size());
         var pages=new QuizContext("summary",List.of(),List.of(new QuizContext.SourcePage(1,PDF,"",null),
                 new QuizContext.SourcePage(2,"화성은 태양계의 행성이며 지구와 다르다.","",null)));
         var contrast=GroundedQuiz.verify(quiz("tf"),pages,new QuizSpec(0,1,0)).path("items").get(0);
@@ -185,7 +185,7 @@ class GroundingTests {
         assertEquals(1,contrast.path("evidence").path("page").intValue());
     }
     @Test void fakePagesQuotesAndAnswersNeverCreatePartialOrFabricatedSets() {
-        var fake=quiz("tf");((tools.jackson.databind.node.ObjectNode)fake.path("items").get(0).path("evidence")).put("page",99);
+        var fake=quiz("tf");((tools.jackson.databind.node.ObjectNode)fake.path("items").get(0).path("evidence")).put("page",99).put("quote","어디에도 없는 페이지와 인용문을 지어낸 문장입니다.");
         assertThrows(ResponseStatusException.class,()->GroundedQuiz.verify(fake,context(),new QuizSpec(0,1,0)));
         var wrong=quiz("short");((tools.jackson.databind.node.ObjectNode)wrong.path("items").get(0)).putObject("answerKey").putArray("accepted").add("우주의 중심");
         assertThrows(ResponseStatusException.class,()->GroundedQuiz.verify(wrong,context(),new QuizSpec(0,0,1)));

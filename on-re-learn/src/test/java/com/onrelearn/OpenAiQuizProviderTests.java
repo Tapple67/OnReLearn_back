@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class OpenAiQuizProviderTests {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static String quiz(String title, String source, int count) {
-        String item = "{\"type\":\"tf\",\"question\":\"Q\",\"explanation\":\"E\",\"answerKey\":{\"correct\":true},\"evidence\":{\"source\":\""+source+"\",\"page\":1,\"quote\":\"실제 PDF에 포함된 근거 문장입니다.\"}}";
+        String item = "{\"type\":\"tf\",\"question\":\"실제 PDF 근거 판단\",\"explanation\":\"E\",\"answerKey\":{\"correct\":true},\"evidence\":{\"source\":\""+source+"\",\"page\":1,\"quote\":\"실제 PDF에 포함된 근거 문장입니다.\"}}";
         return "{\"title\":\""+title+"\",\"items\":["+String.join(",",Collections.nCopies(count,item))+"]}";
     }
     private QuizContext context(boolean notes) {
@@ -71,13 +71,13 @@ class OpenAiQuizProviderTests {
             assertEquals("quiz_result",request.path("text").path("format").path("name").asString());
         }
     }
-    @Test void repairsJsonAndCountsWithoutUsingNotesAsFacts() throws Exception {
-        try (var f = new Fixture("invalid",quiz("wrong count","pdf",2),quiz("low coverage","pdf",1))) {
+    @Test void repairsJsonAndDropsSurplusWithoutUsingNotesAsFacts() throws Exception {
+        try (var f = new Fixture("invalid",quiz("surplus","pdf",2))) {
             var result = f.provider(false).generate(context(true),new QuizSpec(0,1,0),null);
             assertEquals("원문 근거 퀴즈",result.output().get("title").stringValue());
-            assertEquals(3,f.requests.size());
+            assertEquals(1,result.output().get("items").size());
+            assertEquals(2,f.requests.size());
             assertTrue(JSON.readTree(f.requests.get(1)).path("input").asString().contains("valid JSON"));
-            assertTrue(JSON.readTree(f.requests.get(2)).path("input").asString().contains("exactly mcq"));
         }
     }
     @Test void criticCanRepairUsingSeparateModelAndSchema() throws Exception {
@@ -102,12 +102,12 @@ class OpenAiQuizProviderTests {
             }
         }
     }
-    @Test void failsInvalidFinalCountsAndDoesNotRepairTransportErrors() throws Exception {
-        try (var f = new Fixture(quiz("wrong","pdf",2),quiz("still wrong","pdf",2))) {
+    @Test void failsWhenCountCannotBeFilledAndDoesNotRepairTransportErrors() throws Exception {
+        try (var f = new Fixture(quiz("repeat","pdf",1),quiz("repeat","pdf",1),quiz("repeat","pdf",1))) {
             var error = assertThrows(ResponseStatusException.class,
-                    () -> f.provider(false).generate(context(false),new QuizSpec(0,1,0),null));
+                    () -> f.provider(false).generate(context(false),new QuizSpec(0,2,0),null));
             assertEquals(502,error.getStatusCode().value());
-            assertEquals(2,f.requests.size());
+            assertEquals(3,f.requests.size());
         }
         try (var f = new Fixture("HTTP_ERROR")) {
             assertThrows(ResponseStatusException.class,

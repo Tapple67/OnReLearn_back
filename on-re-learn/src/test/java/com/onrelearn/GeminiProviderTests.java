@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class GeminiProviderTests {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String QUIZ = """
-        {"title":"quiz","items":[{"type":"tf","question":"Q","explanation":"E",
+        {"title":"quiz","items":[{"type":"tf","question":"원문 문장 판단","explanation":"E",
         "answerKey":{"correct":true},"evidence":{"source":"pdf","page":1,"quote":"원문에 존재하는 검증 가능한 PDF 문장입니다."}}]}
         """;
 
@@ -83,7 +83,7 @@ class GeminiProviderTests {
         var retryItems = (tools.jackson.databind.node.ArrayNode) second.path("items");
         retryItems.remove(1);
         var valid = (tools.jackson.databind.node.ObjectNode) retryItems.get(0);
-        valid.put("question", "Another concept question"); ((tools.jackson.databind.node.ObjectNode) valid.path("evidence")).put("page", 2);
+        valid.put("question", "검증 가능한 문장 판단"); ((tools.jackson.databind.node.ObjectNode) valid.path("evidence")).put("page", 2);
         var context = new QuizContext("summary", List.of(), List.of(
                 quizContext().sourcePages().get(0),
                 new QuizContext.SourcePage(2, "원문에 존재하는 검증 가능한 PDF 문장입니다.", "", null)));

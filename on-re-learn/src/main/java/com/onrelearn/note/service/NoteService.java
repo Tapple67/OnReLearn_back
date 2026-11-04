@@ -38,10 +38,24 @@ public class NoteService {
             .orElse(null);
     }
 
+    @Transactional(readOnly = true)
+    public java.util.List<Integer> pagesWithContent(String memberId, String materialId) {
+        if (materialId == null || materialId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "자료 ID가 올바르지 않습니다.");
+        }
+        var material = materials.findByIdAndSubject_Grade_User_Id(materialId.trim(), memberId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "권한이 없거나 자료가 없습니다."));
+        // * 내용을 지워 저장한 행도 남으므로 실제 내용이 있는 페이지만 메모로 표시한다.
+        return notes.findByMaterial_IdOrderByPageAsc(material.getId()).stream()
+            .filter(note -> !note.getContent().isBlank())
+            .map(com.onrelearn.note.entity.Note::getPage)
+            .toList();
+    }
+
     @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public NoteView save(String memberId, String materialId, int page, String content) {
         if (materialId == null || materialId.isBlank() || page < 1 || content == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "노트 입력이 올바르지 않습니다.");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "메모 입력이 올바르지 않습니다.");
         }
         String id = materialId.trim();
         String subjectId = materials.findOwnedSubjectId(id, memberId)

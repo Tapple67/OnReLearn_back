@@ -12,6 +12,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 public final class AiQuizProvider implements QuizProvider {
+    private static final int MAX_GROUNDING_REPAIRS = 2;
     private final AiTextClient generator, critic;
     private final String model, criticModel;
     private final boolean reviewEnabled;
@@ -32,17 +33,14 @@ public final class AiQuizProvider implements QuizProvider {
         stage.accept("generating");
         String base = prompt.render(context, spec, focus);
         JsonNode output = parsed(generator, base, generationFormat, QuizOutputValidator::validateStructure);
-        if (!matches(output, spec)) {
-            output = parsed(generator, prompt.countRepair(base, spec),
-                    generationFormat, QuizOutputValidator::validateStructure);
-        }
         // ! No optional review may turn an invalid generation into a successful result.
         stage.accept("validating");
-        QuizOutputValidator.validate(output, spec);
-        if (reviewEnabled) {
+        if (reviewEnabled && matches(output, spec)) {
             stage.accept("reviewing");
             try {
-                JsonNode reviewed = parsed(critic, prompt.critique(output, java.util.List.of()), critiqueFormat,
+                var notes = context.sourcePages().stream().filter(page -> !page.note().isBlank())
+                        .map(page -> new QuizContext.Note(page.page(), page.note(), page.signals())).toList();
+                JsonNode reviewed = parsed(critic, prompt.critique(output, notes), critiqueFormat,
                         value -> new QuizCritique(value, spec.totalCount()));
                 var critique = new QuizCritique(reviewed, spec.totalCount());
                 if (critique.needsRepair()) {
@@ -57,22 +55,25 @@ public final class AiQuizProvider implements QuizProvider {
             }
         }
         stage.accept("grounding");
-        try {
-            output = GroundedQuiz.verify(output, context, spec);
-        } catch (GroundedQuiz.Shortfall rejected) {
-            QuizSpec missing = rejected.missing();
-            stage.accept("grounding_retry");
-            JsonNode repair = parsed(generator, prompt.render(context, missing, focus)
-                    + "\n이미 검증된 문항은 서버가 보존한다. 위에 지정된 부족분만 생성한다. "
-                    + "메모 연결 목록에 없는 주제를 우선하고 정답과 보기, 인용구를 PDF에서 그대로 복사한다. "
-                    + "다음 확정 문제와 같은 질문을 반복하지 않는다: "
-                    + json.writeValueAsString(rejected.acceptedQuestions()),
-                    generationFormat, value -> QuizOutputValidator.validate(value, missing));
-            stage.accept("grounding");
-            output = GroundedQuiz.verifyWithRepair(output, repair, context, spec);
-        }
-        return new QuizResult(output, spec, generator.provider(),
+        return new QuizResult(grounded(output, context, spec, focus, stage), spec, generator.provider(),
                 reviewEnabled ? model + " (critic: " + criticModel + ")" : model, QuizPrompt.VERSION);
+    }
+
+    // * Verified items accumulate across requests, so a retry only pays for what is still missing.
+    private JsonNode grounded(JsonNode output, QuizContext context, QuizSpec spec, QuizFocus focus, Consumer<String> stage) {
+        JsonNode candidates = output;
+        for (int repairs = 0; ; repairs++) {
+            try {
+                return GroundedQuiz.verify(candidates, context, spec);
+            } catch (GroundedQuiz.Shortfall rejected) {
+                if (repairs == MAX_GROUNDING_REPAIRS) throw rejected;
+                stage.accept("grounding_retry");
+                JsonNode repair = parsed(generator, prompt.groundingRepair(context, rejected.missing(), focus,
+                        rejected.guidance(), rejected.acceptedQuestions()), generationFormat, QuizOutputValidator::validateStructure);
+                stage.accept("grounding");
+                candidates = GroundedQuiz.combine(candidates, repair);
+            }
+        }
     }
 
     private JsonNode parsed(AiTextClient client, String text, JsonNode format, Consumer<JsonNode> validate) {

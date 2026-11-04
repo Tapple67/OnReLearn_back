@@ -79,6 +79,15 @@ class NoteReadMysqlTests {
             assertEquals(200, empty.statusCode());
             assertTrue(JsonMapper.builder().build().readTree(empty.body()).get("note").isNull());
             assertEquals(403, get(tokens.issue(otherId), query + "&page=2").statusCode());
+            notes.saveAndFlush(new com.onrelearn.note.entity.Note(material, 2, " \n "));
+            var pages = send(jwt, "/api/notes/pages?" + query);
+            assertEquals(200, pages.statusCode());
+            var listed = JsonMapper.builder().build().readTree(pages.body()).get("pages");
+            assertEquals(1, listed.size());
+            assertEquals(1, listed.get(0).intValue());
+            assertEquals(401, send(null, "/api/notes/pages?" + query).statusCode());
+            assertEquals(403, send(tokens.issue(otherId), "/api/notes/pages?" + query).statusCode());
+            assertEquals(400, send(jwt, "/api/notes/pages").statusCode());
         } finally {
             // ! 이 시험에서 생성한 자료와 계정만 정리한다. 노트는 자료 FK로 함께 정리된다.
             if (materialId != null) jdbc.update("DELETE FROM material WHERE id = ?", materialId);
@@ -91,7 +100,11 @@ class NoteReadMysqlTests {
     }
 
     private HttpResponse<String> get(String jwt, String query) throws Exception {
-        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/notes?" + query));
+        return send(jwt, "/api/notes?" + query);
+    }
+
+    private HttpResponse<String> send(String jwt, String path) throws Exception {
+        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path));
         if (jwt != null) request.header("Cookie", "token=" + jwt);
         return http.send(request.GET().build(), HttpResponse.BodyHandlers.ofString());
     }

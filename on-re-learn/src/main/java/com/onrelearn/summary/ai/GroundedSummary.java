@@ -12,6 +12,7 @@ import tools.jackson.databind.json.JsonMapper;
 public final class GroundedSummary {
     private static final int MAX_ITEMS_PER_BATCH=8;
     private static final int MAX_EXCERPT_LENGTH=360;
+    private static final int MAX_EXPLANATION_LENGTH=600;
     private final SummaryInput input;
     private final Consumer<String> publish;
     private final int sectionNumber;
@@ -87,14 +88,21 @@ public final class GroundedSummary {
                     .anyMatch(candidate -> SourceEvidence.normalize(candidate.pdfText()).contains(proposedSection)) ? proposedSection : "";
             String topic=SourceEvidence.normalize(value.path("topic").asString(""));
             if (topic.length()<2 || topic.length()>60 || !SourceEvidence.normalize(source.pdfText()).contains(topic)) topic="";
-            publish(page,paragraph,category,verifiedNote ? note : "",section,topic);
+            publish(page,paragraph,category,verifiedNote ? note : "",section,topic,SourceEvidence.normalize(value.path("easy").asString("")));
         } catch (tools.jackson.core.JacksonException ignored) { /* ! Malformed/unsupported paragraphs are excluded, never displayed. */ }
     }
     private void publish(int page, String paragraph) {
-        publish(page, paragraph, "", "", "", "");
+        publish(page, paragraph, "", "", "", "", "");
     }
 
-    private void publish(int page, String paragraph, String label, String note, String section, String topic) {
+    // * The excerpt stays source-verified. The explanation below it is labeled as AI-written, not as source text.
+    private String explanation(int page, String concept, String easy) {
+        if (easy.isEmpty() || easy.length()>MAX_EXPLANATION_LENGTH) return "";
+        var memos=noteLinks.takeDifficulties(page,concept);
+        return memos.isEmpty() ? "" : String.join("",memos)+"> 쉽게 풀어보면 · "+easy+"\n\n";
+    }
+
+    private void publish(int page, String paragraph, String label, String note, String section, String topic, String easy) {
         if (seen.size()>=MAX_ITEMS_PER_BATCH || !seen.add(page+":"+paragraph)) return;
         String heading="";
         if (accepted.isEmpty() && subsectionNumber==0) {
@@ -112,7 +120,10 @@ public final class GroundedSummary {
             heading+="### "+sectionNumber+"."+(++subsectionNumber)+" "+subheading+"\n\n";
         }
         String verified=heading+"- "+(topic.isEmpty() ? label : "")+paragraph+" (p."+page+")\n\n";
-        if (noteLinks!=null) verified+=noteLinks.takeFor(page,topic+" "+paragraph);
+        if (noteLinks!=null) {
+            verified+=explanation(page,topic+" "+paragraph,easy);
+            verified+=noteLinks.takeFor(page,topic+" "+paragraph);
+        }
         else if (!note.isEmpty()) verified+="> 학습 메모 · "+note+" (p."+page+")\n\n";
         accepted.append(verified);
         publish.accept(verified);
@@ -145,7 +156,7 @@ public final class GroundedSummary {
                 String excerpt=SourceEvidence.normalize(line);
                 if (excerpt.length()>=16 && excerpt.length()<=240
                         && excerpt.codePoints().filter(Character::isLetter).count()>=8) {
-                    publish(page.page(),excerpt,"원문 발췌 · ","","","");
+                    publish(page.page(),excerpt,"원문 발췌 · ","","","","");
                     return;
                 }
             }

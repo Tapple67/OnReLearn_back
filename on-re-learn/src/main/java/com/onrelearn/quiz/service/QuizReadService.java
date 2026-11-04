@@ -45,7 +45,7 @@ public class QuizReadService {
             }
         }
         return sets.listForMaterial(material.getId()).stream()
-                .map(s -> new SetView(s.getId(), s.getTitle(), s.getCreatedAt(), s.getItemCount(), preferred.get(s.getId()), com.onrelearn.quiz.ai.QuizPrompt.VERSION.equals(s.getPromptVersion()))).toList();
+                .map(s -> new SetView(s.getId(), s.getTitle(), s.getCreatedAt(), s.getItemCount(), preferred.get(s.getId()), com.onrelearn.quiz.ai.QuizPrompt.grounded(s.getPromptVersion()))).toList();
     }
 
     private static boolean completed(QuizAttemptStatus status) {
