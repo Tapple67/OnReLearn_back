@@ -7,16 +7,28 @@ import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.json.JsonMapper;
 
 public final class SummaryPrompt {
-    public static final String VERSION = "summary.v19-rewrite-merged";
+    public static final String VERSION = "summary.v20-rewrite-goals";
+    private static final int MAX_OVERVIEW_INPUT = 30000;
     private final String template;
+    private final String overviewTemplate;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public SummaryPrompt() {
-        try (var stream = new ClassPathResource("prompts/summary-v6.txt").getInputStream()) {
-            template = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        template = resource("prompts/summary-v6.txt");
+        overviewTemplate = resource("prompts/summary-overview.txt");
+    }
+
+    private static String resource(String path) {
+        try (var stream = new ClassPathResource(path).getInputStream()) {
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException exception) {
             throw new IllegalStateException("Summary prompt unavailable");
         }
+    }
+
+    public String overview(String title, String summary) {
+        String input = summary.length() > MAX_OVERVIEW_INPUT ? summary.substring(0, MAX_OVERVIEW_INPUT) : summary;
+        return overviewTemplate.formatted(title, input);
     }
 
     public String render(SummaryInput input) {

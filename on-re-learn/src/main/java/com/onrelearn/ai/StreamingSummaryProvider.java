@@ -19,6 +19,7 @@ public final class StreamingSummaryProvider implements SummaryProvider {
     private final Duration idle;
     private final int batchPages, batchChars, concurrency;
     private final String thinkingLevel;
+    private final boolean overview;
     private final SummaryPrompt prompt = new SummaryPrompt();
     private final JsonMapper json = JsonMapper.builder().build();
     public StreamingSummaryProvider(String provider, String endpoint, String key, String model, String reasoning, Duration idle) {
@@ -31,8 +32,12 @@ public final class StreamingSummaryProvider implements SummaryProvider {
         this(provider,endpoint,key,model,reasoning,idle,batchPages,batchChars,thinkingLevel,1);
     }
     public StreamingSummaryProvider(String provider, String endpoint, String key, String model, String reasoning, Duration idle, int batchPages, int batchChars, String thinkingLevel, int concurrency) {
+        this(provider,endpoint,key,model,reasoning,idle,batchPages,batchChars,thinkingLevel,concurrency,false);
+    }
+    public StreamingSummaryProvider(String provider, String endpoint, String key, String model, String reasoning, Duration idle, int batchPages, int batchChars, String thinkingLevel, int concurrency, boolean overview) {
         if (concurrency<1 || concurrency>10) throw new IllegalArgumentException("Invalid summary concurrency");
         this.concurrency=concurrency;
+        this.overview=overview;
         this.provider=provider; this.endpoint=endpoint; this.key=key; this.model=model; this.reasoning=reasoning; this.idle=idle;
         this.thinkingLevel=thinkingLevel.strip().toUpperCase(java.util.Locale.ROOT);
         if (!java.util.Set.of("","MINIMAL","LOW","MEDIUM","HIGH").contains(this.thinkingLevel)) throw new IllegalArgumentException("Invalid summary thinking level");
@@ -132,6 +137,8 @@ public final class StreamingSummaryProvider implements SummaryProvider {
             combined.append(notesWithoutPdf);
             delta.accept(notesWithoutPdf.toString());
         }
+        // * Goals need the finished summary, so they appear once it is saved rather than in the live preview.
+        if (overview && batches.size()>1) combined.insert(0,goals(input,combined.toString(),deadline));
         return new SummaryResult(combined.toString(),null,null,provider,model,input.promptVersion());
     }
     private record Batch(SummaryOutline.Section section, java.util.List<SummaryInput.Page> pages) {}
@@ -186,7 +193,23 @@ public final class StreamingSummaryProvider implements SummaryProvider {
         return batches;
     }
 
+    private String goals(SummaryInput input, String summary, long deadline) {
+        try {
+            var raw=new StringBuilder();
+            streamText(prompt.overview(input.title(),summary),raw::append,deadline);
+            return GroundedSummary.overview(raw.toString(),summary);
+        } catch (RuntimeException problem) {
+            // ! The summary is already complete; losing the goals must not lose it.
+            LOG.warn("Summary goals skipped: type={}", problem.getClass().getSimpleName());
+            return "";
+        }
+    }
+
     private void streamBatch(SummaryInput input, Consumer<String> sink, long deadline) {
+        streamText(prompt.render(input),sink,deadline);
+    }
+
+    private void streamText(String text, Consumer<String> sink, long deadline) {
         if (key.isBlank() || key.contains("\n") || key.contains("\r") || !model.matches("[A-Za-z0-9._-]+") || idle.toMillis()<1)
             throw failure(503);
         boolean gemini=provider.equals("gemini");
@@ -197,9 +220,9 @@ public final class StreamingSummaryProvider implements SummaryProvider {
         if (uri.getHost()==null || uri.getUserInfo()!=null || uri.getFragment()!=null ||
                 !("https".equals(uri.getScheme()) || ("http".equals(uri.getScheme()) && ("127.0.0.1".equals(uri.getHost()) || "localhost".equals(uri.getHost()))))) throw failure(503);
         var body=json.createObjectNode();
-        if (gemini) body.putArray("contents").addObject().put("role","user").putArray("parts").addObject().put("text",prompt.render(input));
+        if (gemini) body.putArray("contents").addObject().put("role","user").putArray("parts").addObject().put("text",text);
         else {
-            body.put("model",model).put("store",false).put("stream",true).put("input",prompt.render(input));
+            body.put("model",model).put("store",false).put("stream",true).put("input",text);
             if (!reasoning.isBlank()) body.putObject("reasoning").put("effort",reasoning);
         }
         if (gemini && !thinkingLevel.isEmpty()) body.putObject("generationConfig").putObject("thinkingConfig").put("thinkingLevel",thinkingLevel);

@@ -15,6 +15,7 @@ public final class GroundedSummary {
     private static final int MAX_ITEMS_PER_BATCH=8;
     private static final int MAX_CLAIMS_PER_BATCH=60;
     private static final int MAX_SUB_POINTS=6;
+    private static final int MAX_GOALS=4;
     private static final int MIN_SENTENCE_LENGTH=8;
     private static final int MAX_SENTENCE_LENGTH=300;
     private static final int MAX_EXCERPT_LENGTH=360;
@@ -176,6 +177,27 @@ public final class GroundedSummary {
 
     // * Counts only, so the log can show how strict the checks are without keeping any study text.
     public Map<String,Integer> statistics() { return new TreeMap<>(statistics); }
+
+    // * Goals sit above the summary, so they must come from it. Anything unusable just leaves the section out.
+    public static String overview(String raw, String summary) {
+        var mapper=JsonMapper.builder().build();
+        var goals=new LinkedHashMap<String,String>();
+        for (String line : raw.split("\\R")) {
+            if (goals.size()>=MAX_GOALS) break;
+            try {
+                var value=mapper.readTree(line);
+                if (value==null || !value.path("goal").isString()) continue;
+                String goal=sentence(value.path("goal").asString(""));
+                if (!goal.isEmpty() && SourceEvidence.supports(goal,summary) && SourceEvidence.numbersAppear(goal,summary)) {
+                    goals.putIfAbsent(SourceEvidence.compact(goal),goal);
+                }
+            } catch (tools.jackson.core.JacksonException ignored) { /* ! Malformed lines are excluded, never displayed. */ }
+        }
+        if (goals.isEmpty()) return "";
+        var text=new StringBuilder("## 학습 목표\n\n");
+        goals.values().forEach(goal -> text.append("- ").append(goal).append("\n\n"));
+        return text.toString();
+    }
 
     // * The stored text is parsed line by line, so a sentence keeps only bold and cannot start its own structure.
     private static String sentence(String raw) {

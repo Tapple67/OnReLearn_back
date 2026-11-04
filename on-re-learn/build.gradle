@@ -69,7 +69,7 @@ layout.buildDirectory = layout.projectDirectory.dir('build-onrelearn')
 sourceSets {
     main.resources {
         // * Package only the approved AI prompts, never local key files.
-        include 'onrelearn.yml', 'sql/onrelearn.sql', 'prompts/summary-v6.txt', 'prompts/quiz-v6-generation.txt', 'prompts/quiz-v6-general.txt', 'prompts/quiz-v6-wrong.txt', 'prompts/quiz-v6-weak.txt', 'prompts/quiz-generation-format.json', 'prompts/quiz-critique-format.json', 'prompts/quiz-v6-critique.txt', 'prompts/quiz-v6-repair.txt', 'prompts/quiz-v6-critique-notes.txt', 'prompts/quiz-v6-critique-no-notes.txt'
+        include 'onrelearn.yml', 'sql/onrelearn.sql', 'prompts/summary-v6.txt', 'prompts/summary-overview.txt', 'prompts/quiz-v6-generation.txt', 'prompts/quiz-v6-general.txt', 'prompts/quiz-v6-wrong.txt', 'prompts/quiz-v6-weak.txt', 'prompts/quiz-generation-format.json', 'prompts/quiz-critique-format.json', 'prompts/quiz-v6-critique.txt', 'prompts/quiz-v6-repair.txt', 'prompts/quiz-v6-critique-notes.txt', 'prompts/quiz-v6-critique-no-notes.txt'
         exclude '**/.env*', '**/application.properties'
     }
 }

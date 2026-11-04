@@ -121,6 +121,74 @@ class SummaryParallelTests {
             assertEquals(1, peak.get());
         } finally { server.stop(0); }
     }
+    private static HttpServer withOverview(String goals, AtomicInteger overviewCalls, int status) throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(Executors.newCachedThreadPool());
+        server.createContext("/", exchange -> {
+            String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            if (!body.contains("학습 목표를 작성")) { reply(exchange, firstPage(body)); return; }
+            overviewCalls.incrementAndGet();
+            if (status != 200) { exchange.sendResponseHeaders(status, -1); exchange.close(); return; }
+            String payload = "data: {\"type\":\"response.output_text.delta\",\"delta\":" + JSON.writeValueAsString(goals) + "}\n\ndata: {\"type\":\"response.completed\"}\n\n";
+            byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        return server;
+    }
+    private static StreamingSummaryProvider withOverview(HttpServer server) {
+        return new StreamingSummaryProvider("openai", "http://127.0.0.1:" + server.getAddress().getPort(), "synthetic", "test", "",
+            Duration.ofSeconds(5), 2, 16000, "", 3, true);
+    }
+    @Test void learningGoalsAreCheckedAndPlacedAboveTheSummary() throws Exception {
+        String goals = "{\"goal\":\"PAGE_1_PDF 원문 사실 문장을 설명할 수 있다.\"}\n"
+            + "{\"goal\":\"양자 컴퓨터의 광자 연산을 설명할 수 있다.\"}\n"
+            + "{\"goal\":\"PAGE_3_PDF 원문 사실 99가지를 나열할 수 있다.\"}\n";
+        var server = withOverview(goals, new AtomicInteger(), 200);
+        try {
+            var chunks = new ArrayList<String>();
+            String content = withOverview(server).generate(input(4), chunks::add).content();
+            assertTrue(content.startsWith("## 학습 목표\n\n- PAGE_1_PDF 원문 사실 문장을 설명할 수 있다.\n\n"), content);
+            assertFalse(content.contains("양자"), content);
+            assertFalse(content.contains("99가지"), content);
+            assertTrue(content.indexOf("학습 목표") < content.indexOf("## 1."), content);
+            assertFalse(String.join("", chunks).contains("학습 목표"), "미리보기에는 넣지 않는다");
+        } finally { server.stop(0); }
+    }
+    @Test void goalsAreLimitedToFour() throws Exception {
+        var goals = new StringBuilder();
+        for (int n = 1; n <= 8; n++) goals.append("{\"goal\":\"PAGE_1_PDF 원문 사실 문장 목표").append(" 설명 ".repeat(n)).append("\"}\n");
+        var server = withOverview(goals.toString(), new AtomicInteger(), 200);
+        try {
+            String content = withOverview(server).generate(input(4)).content();
+            assertEquals(4, content.lines().filter(line -> line.startsWith("- PAGE_1_PDF 원문 사실 문장 목표")).count(), content);
+        } finally { server.stop(0); }
+    }
+    @Test void aFailedOverviewKeepsTheSummary() throws Exception {
+        var calls = new AtomicInteger();
+        var server = withOverview("", calls, 400);
+        try {
+            String content = withOverview(server).generate(input(4)).content();
+            assertEquals(1, calls.get());
+            assertTrue(content.startsWith("## 1."), content);
+        } finally { server.stop(0); }
+    }
+    @Test void noUsableGoalLeavesNoEmptyHeading() throws Exception {
+        var server = withOverview("{\"goal\":\"양자 컴퓨터의 광자 연산을 설명할 수 있다.\"}\n잘못된 줄\n", new AtomicInteger(), 200);
+        try {
+            assertFalse(withOverview(server).generate(input(4)).content().contains("학습 목표"));
+        } finally { server.stop(0); }
+    }
+    @Test void aShortMaterialDoesNotSpendAnExtraCall() throws Exception {
+        var calls = new AtomicInteger();
+        var server = withOverview("", calls, 200);
+        try {
+            withOverview(server).generate(input(2));
+            assertEquals(0, calls.get());
+        } finally { server.stop(0); }
+    }
     @Test void invalidConcurrencyIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> new StreamingSummaryProvider("openai", "http://127.0.0.1:1", "k", "m", "", Duration.ofSeconds(1), 2, 16000, "", 0));
         assertThrows(IllegalArgumentException.class, () -> new StreamingSummaryProvider("openai", "http://127.0.0.1:1", "k", "m", "", Duration.ofSeconds(1), 2, 16000, "", 11));
