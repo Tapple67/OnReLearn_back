@@ -167,6 +167,27 @@ class SummaryRewriteTests {
         assertTrue(later.contains("### 2.2 해시 함수의 용도"), later);
         assertTrue(later.contains("1. 파일 체크섬"), later);
     }
+    @Test void countsWhySentencesWereRejectedWithoutKeepingTheirText() {
+        var gate = new GroundedSummary(new SummaryInput("m", "s", 1, "t", SummaryPrompt.VERSION,
+            List.of(new SummaryInput.Page(1, TEXT, "", null, null))), text -> {});
+        var parent = claim(1, CLAIM, DEFINITION);
+        parent.put("sub", List.of(claim(1, "결과는 해시 값이라고 부른다.", NAMES), claim(1, "결과는 해시 값 256개라고 부른다.", NAMES)));
+        gate.append(line(parent));
+        gate.append(line(claim(1, CLAIM, DEFINITION)));
+        gate.append(line(claim(1, "해시", DEFINITION)));
+        gate.append(line(claim(1, "원문에 없는 인용을 근거로 쓴 문장이다.", "원문에 전혀 없는 인용 문장입니다.")));
+        gate.append(line(claim(1, "양자 컴퓨터는 광자로 병렬 연산을 한다.", DEFINITION)));
+        gate.append(line(claim(1, "해시 함수는 메시지를 입력받지 않는다.", DEFINITION)));
+        var stats = gate.statistics();
+        assertEquals(2, stats.get("accepted"));
+        assertEquals(1, stats.get("duplicate"));
+        assertEquals(1, stats.get("length"));
+        assertEquals(1, stats.get("quote"));
+        assertEquals(1, stats.get("terms"));
+        assertEquals(1, stats.get("number"));
+        assertEquals(1, stats.get("negation"));
+        assertFalse(stats.toString().contains("해시"));
+    }
     @Test void promptAsksForRewrittenSentencesWithEvidence() {
         var input = new SummaryInput("m", "s", 1, "t", SummaryPrompt.VERSION, List.of(new SummaryInput.Page(1, TEXT, "", null, null)));
         String prompt = new SummaryPrompt().render(input);

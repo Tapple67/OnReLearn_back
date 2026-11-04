@@ -107,6 +107,7 @@ public final class StreamingSummaryProvider implements SummaryProvider {
                 streamBatch(part,verification::append,deadline);
                 verification.finishLine();
             }
+            LOG.info("Summary batch {}/{}: {}", index+1, batches.size(), verification.statistics());
             if (!verification.hasVerifiedExcerpts()) {
                 LOG.warn("Selecting a verified source excerpt for summary batch {}/{}", index+1, batches.size());
                 verification.publishSourceFallback();

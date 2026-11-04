@@ -31,6 +31,7 @@ public final class GroundedSummary {
     private String previousTopic="";
     private final StringBuilder pending=new StringBuilder(), accepted=new StringBuilder();
     private final Set<String> seen=new HashSet<>();
+    private final Map<String,Integer> statistics=new HashMap<>();
     private final JsonMapper json=JsonMapper.builder().build();
     public GroundedSummary(SummaryInput input, Consumer<String> publish) {
         this(input,publish,1);
@@ -105,7 +106,8 @@ public final class GroundedSummary {
     private void publishClaim(JsonNode value, SummaryInput.Page source) {
         String claim=sentence(value.path("claim").asString(""));
         if (!grounded(claim,source,value.path("quote").asString(""))) return;
-        if (seen.size()>=MAX_CLAIMS_PER_BATCH || !seen.add(SourceEvidence.compact(claim))) return;
+        if (seen.size()>=MAX_CLAIMS_PER_BATCH || !seen.add(SourceEvidence.compact(claim))) { count("duplicate"); return; }
+        count("accepted");
         String section=title(value.path("section").asString(""),70,input.pages());
         String topic=title(value.path("topic").asString(""),60,List.of(source));
         var text=new StringBuilder(heading(section,topic.isEmpty() ? "핵심 내용" : topic));
@@ -116,8 +118,10 @@ public final class GroundedSummary {
             int subPage=sub.path("page").canConvertToInt() ? sub.path("page").asInt() : source.page();
             var subSource=input.pages().stream().filter(p -> p.page()==subPage).findFirst().orElse(null);
             String point=sentence(sub.path("claim").asString(""));
-            if (subSource==null || !grounded(point,subSource,sub.path("quote").asString(""))) continue;
-            if (!seen.add(SourceEvidence.compact(point))) continue;
+            if (subSource==null) { count("quote"); continue; }
+            if (!grounded(point,subSource,sub.path("quote").asString(""))) continue;
+            if (!seen.add(SourceEvidence.compact(point))) { count("duplicate"); continue; }
+            count("accepted");
             text.append("  ").append((char) ('a'+letters++)).append(". ").append(point).append(" (p.").append(subPage).append(")\n\n");
         }
         if (noteLinks!=null) {
@@ -130,12 +134,20 @@ public final class GroundedSummary {
     }
 
     // ! Overlap shows the sentence comes from this page, not that it is true; the page chip lets the learner check it.
-    private static boolean grounded(String claim, SummaryInput.Page source, String quote) {
-        return !claim.isEmpty() && SourceEvidence.quoted(source.pdfText(),quote)
-                && SourceEvidence.supports(claim,source.pdfText()) && SourceEvidence.related(claim,quote)
-                && SourceEvidence.numbersAppear(claim,source.pdfText())
-                && SourceEvidence.negationKept(claim,source.pdfText(),quote);
+    private boolean grounded(String claim, SummaryInput.Page source, String quote) {
+        String reason=claim.isEmpty() ? "length"
+                : !SourceEvidence.quoted(source.pdfText(),quote) ? "quote"
+                : !SourceEvidence.supports(claim,source.pdfText()) || !SourceEvidence.related(claim,quote) ? "terms"
+                : !SourceEvidence.numbersAppear(claim,source.pdfText()) ? "number"
+                : !SourceEvidence.negationKept(claim,source.pdfText(),quote) ? "negation" : null;
+        if (reason!=null) count(reason);
+        return reason==null;
     }
+
+    private void count(String outcome) { statistics.merge(outcome,1,Integer::sum); }
+
+    // * Counts only, so the log can show how strict the checks are without keeping any study text.
+    public Map<String,Integer> statistics() { return new TreeMap<>(statistics); }
 
     // * The stored text is parsed line by line, so a sentence keeps only bold and cannot start its own structure.
     private static String sentence(String raw) {

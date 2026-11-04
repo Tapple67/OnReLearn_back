@@ -1,3 +1,7 @@
+## 2026-11-05 요약 품질 측정
+
+- [x] 묶음마다 문장 통과·탈락 수와 사유(`quote`, `terms`, `number`, `negation`, `length`, `duplicate`)를 INFO 로그 `Summary batch n/m`에 남긴다. 숫자만 남기고 문장은 남기지 않는다. 판단 기준은 `docs/summary-quality-rubric.md`에 있다.
+
 ## 2026-11-05 창을 닫아도 계속되는 요약과 병렬 처리
 
 - [x] 요약 생성을 요청에서 분리했다(`SummaryJobs`). `POST /api/summary/summaries/stream`은 작업을 시작하거나 진행 중인 작업에 붙어 지켜보기만 하고, 연결이 끊겨도 작업은 끝까지 진행해 저장한다. 같은 사용자·자료의 중복 생성을 막는다. `GET /api/summary/summaries/job?materialId=`로 `idle`·`running`·`failed`와 진행 중 글을 조회한다. API 응답 계약과 DB 구조는 그대로다.
