@@ -1,0 +1,37 @@
+다음 퀴즈를 개념 이해형 학습 문제 기준으로 검수해라.
+JSON 객체 하나만 출력한다.
+
+평가 기준:
+%s
+- grounding: 각 문항의 evidence.quote와 explanation이 서로 충돌하지 않는가.
+- conceptualDepth: 단순 암기보다 개념 관계/원리/적용/비교를 묻는가.
+- answerClarity: 정답이 명확하고 모호하지 않은가.
+- distractorQuality: 객관식 오답이 그럴듯하지만 명확히 틀리는가.
+- explanationQuality: 해설이 오개념을 교정하고 이해를 돕는가.
+
+출력 스키마:
+{
+  "items": [
+    {
+      "index": number,
+      "score": number,
+      "problems": string[],
+      "regenerate": boolean
+    }
+  ],
+  "regenerateIndexes": number[]
+}
+
+규칙:
+- index는 0부터 시작한다.
+- score는 1~5 정수다.
+- score가 2 이하이거나 regenerate가 true인 문항만 regenerateIndexes에 포함한다.
+- score 3은 치명적 오류가 없으면 재생성 대상으로 표시하지 않는다.
+- 정답이 모호하거나 evidence와 충돌하거나 단순 정의 암기형인 문항은 재생성 대상으로 표시한다.
+- 검수는 PDF 원문 전체가 아니라 퀴즈 JSON의 evidence.quote와 사용자 메모만 기준으로 빠르게 수행한다.
+
+[퀴즈 JSON]
+%s
+
+[사용자 메모]
+%s

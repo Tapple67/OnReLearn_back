@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "On Re:Learn (development properties)",
+            "request": "launch",
+            "mainClass": "com.onrelearn.OnReLearnApplication",
+            "projectName": "on-re-learn",
+            "cwd": "${workspaceFolder}/on-re-learn",
+            "args": "--spring.config.location=classpath:/onrelearn.yml,file:./src/main/resources/application.properties"
+        }
+    ]
+}

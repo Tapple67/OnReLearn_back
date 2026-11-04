@@ -1,0 +1,39 @@
+# * 실제 비밀 없는 예시. 사용자가 keys.local.yml로 복사한 후 직접 값을 입력한다.
+# ! keys.local.yml은 Git/빌드/JAR에 포함하지 않고 에이전트가 읽거나 수정하지 않는다.
+# * IDE/JAR 실행 인수 spring.config.location에서 이 파일의 로컬 사본을
+#   onrelearn.yml 다음, application.properties 앞에 둔다. 작업 디렉터리는 백엔드 프로젝트 루트다.
+# * 필요한 항목만 사용한다. 기존 application.properties/OS 환경변수에 있으면 중복 입력할 필요 없다.
+spring:
+  datasource:
+    url: "jdbc:mysql://localhost:3306/onrelearn"
+    username: "<DB 사용자명>"
+    password: "<DB 비밀번호>"
+
+onrelearn:
+  ai:
+    openai:
+      api-key: "<OpenAI API key - server only>"
+    gemini:
+      api-key: "<Gemini API key - server only>"
+    summary:
+      provider: "openai"
+      model: "gpt-5-mini"
+    quiz:
+      provider: "openai"
+      model: "gpt-5.2"
+    quiz-critic:
+      enabled: false
+      provider: "openai"
+      model: "gpt-5-mini"
+    # * Gemini 사용 시 해당 용도 provider=gemini와 사용 가능한 Gemini model을 함께 지정한다.
+    # * API별 개별 키는 해당 용도의 api-key로 재정의할 수 있다. endpoint 기본값은 제공자에 따라 자동 선택된다.
+  auth:
+    jwt:
+      secret: "<32바이트 이상의 임의 JWT 서명 비밀값>"
+  storage:
+    supabase:
+      url: "https://<프로젝트 ID>.supabase.co"
+      service-key: "<서버 전용 Supabase service role key>"
+      bucket: "materials"
+
+# ! Supabase service role key와 JWT 비밀은 React/Vite에 넣지 않는다.

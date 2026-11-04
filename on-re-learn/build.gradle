@@ -1,0 +1,124 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.1'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.on_re_learn'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// SQL 초기화는 JPA starter의 JDBC 지원을 사용한다. 추가 라이브러리 없음.
+
+	// 의존성 {} 안에 프로젝트내 추가할 라이브러리 코드-> 자동으로 라이브러리 설치
+	//1. SpringBoot
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+	//2 jdbc-mysql
+	implementation 'org.springframework.boot:spring-boot-starter'
+  	runtimeOnly 'com.mysql:mysql-connector-j'
+
+	//3 Lombok
+	compileOnly 'org.projectlombok:lombok'
+  	annotationProcessor 'org.projectlombok:lombok'
+
+	//4 JPA
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	// 신규 추가: Java 17에서 PDF 페이지별 텍스트를 추출하기 위한 Apache PDFBox 3.0.8.
+	implementation 'org.apache.pdfbox:pdfbox:3.0.8'
+
+	//5. 외부 데이터 불러오기
+	implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+	//6 xml 변환
+	implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.22.2'
+
+	//csv 변환
+	implementation 'com.opencsv:opencsv:5.12.0'
+
+	
+ 	//비크립트
+	implementation 'org.springframework.security:spring-security-crypto'
+	// 신규 추가: JWT 쿠키 API 권한과 CSRF 필터에 필요한 Spring Security starter (Boot BOM 관리 버전).
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+
+	//JWT
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+   	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+   	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+// Keep old generated resources out of every build/runtime classpath.
+layout.buildDirectory = layout.projectDirectory.dir('build-onrelearn')
+sourceSets {
+    main.resources {
+        // * Package only the approved AI prompts, never local key files.
+        include 'onrelearn.yml', 'sql/onrelearn.sql', 'prompts/summary-v6.txt', 'prompts/quiz-v6-generation.txt', 'prompts/quiz-v6-general.txt', 'prompts/quiz-v6-wrong.txt', 'prompts/quiz-v6-weak.txt', 'prompts/quiz-generation-format.json', 'prompts/quiz-critique-format.json', 'prompts/quiz-v6-critique.txt', 'prompts/quiz-v6-repair.txt', 'prompts/quiz-v6-critique-notes.txt', 'prompts/quiz-v6-critique-no-notes.txt'
+        exclude '**/.env*', '**/application.properties'
+    }
+}
+tasks.withType(ProcessResources).configureEach {
+    exclude '**/.env*', '**/application.properties'
+}
+
+tasks.named('bootRun') {
+    // * Spring만 로컬 설정을 로딩하며 JAR에는 포함하지 않는다.
+    args '--spring.config.location=classpath:/onrelearn.yml,file:./src/main/resources/application.properties'
+}
+tasks.named('test') {
+    useJUnitPlatform { excludeTags 'mysql', 'e2eCleanup', 'e2eSeed' }
+}
+// Explicit opt-in. Spring reads the packaged non-secret configuration; runtime secrets
+// come from environment variables supplied to the process, not a file path in this task.
+// Validate instead of create-drop so a test run cannot reset the development schema.
+tasks.register('mysqlTest', Test) {
+    description = 'Runs real MySQL integration tests against the authorized onrelearn development database.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'mysql' }
+    systemProperty 'spring.config.location', 'classpath:/onrelearn.yml'
+    systemProperty 'spring.jpa.hibernate.ddl-auto', 'validate'
+}
+
+// Opt-in cleanup only for a newly created synthetic E2E account in onrelearn.
+tasks.register('cleanupSyntheticE2e', Test) {
+    description = 'Removes one explicitly named synthetic E2E account and its cascading grades.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'e2eCleanup' }
+    systemProperty 'spring.config.location', 'classpath:/onrelearn.yml'
+    systemProperty 'spring.jpa.hibernate.ddl-auto', 'validate'
+    systemProperty 'onrelearn.e2e.cleanup.email', providers.gradleProperty('e2eEmail').getOrElse('')
+}
+
+// Opt-in synthetic browser seed; the exact email is required and cleanup remains separate.
+tasks.register('seedSyntheticGoalProgressE2e', Test) {
+    description = 'Creates one guarded synthetic account with completed and in-progress quiz attempts.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'e2eSeed' }
+    systemProperty 'spring.config.location', 'classpath:/onrelearn.yml'
+    systemProperty 'spring.jpa.hibernate.ddl-auto', 'validate'
+    systemProperty 'onrelearn.e2e.seed.email', providers.gradleProperty('e2eEmail').getOrElse('')
+    systemProperty 'onrelearn.e2e.seed.weak-topic', providers.gradleProperty('e2eWeakTopic').getOrElse('false')
+    systemProperty 'onrelearn.e2e.seed.record-pdf', providers.gradleProperty('e2eRecordPdf').getOrElse('false')
+}

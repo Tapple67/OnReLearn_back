@@ -1,0 +1,63 @@
+spring:
+  servlet:
+    multipart:
+      max-file-size: ${ONRELEARN_MATERIAL_MAX_BYTES:20971520}
+      max-request-size: ${ONRELEARN_MATERIAL_MAX_REQUEST_BYTES:22020096}
+  application:
+    name: on-re-learn
+  profiles:
+    default: local
+  datasource:
+    hikari:
+      connection-timeout: 5000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+server:
+  address: 127.0.0.1
+  port: 8080
+  error:
+    include-message: never
+    include-stacktrace: never
+onrelearn:
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+    gemini:
+      api-key: ${GEMINI_API_KEY:}
+    summary:
+      provider: ${ONRELEARN_SUMMARY_PROVIDER:openai}
+      endpoint: ${ONRELEARN_SUMMARY_ENDPOINT:}
+      api-key: ${ONRELEARN_SUMMARY_API_KEY:}
+      model: ${ONRELEARN_SUMMARY_MODEL:}
+      reasoning-effort: ${ONRELEARN_SUMMARY_REASONING_EFFORT:low}
+      timeout: ${ONRELEARN_SUMMARY_TIMEOUT:PT60S}
+      retries: ${ONRELEARN_SUMMARY_RETRIES:0}
+      retry-delay: ${ONRELEARN_SUMMARY_RETRY_DELAY:PT1S}
+  material:
+    max-bytes: ${ONRELEARN_MATERIAL_MAX_BYTES:20971520}
+    extraction:
+      lease: ${ONRELEARN_EXTRACTION_LEASE:PT5M}
+      enabled: ${ONRELEARN_MATERIAL_EXTRACTION_ENABLED:false}
+      poll-delay-ms: ${ONRELEARN_MATERIAL_EXTRACTION_POLL_DELAY_MS:5000}
+      max-processing: ${ONRELEARN_MATERIAL_EXTRACTION_MAX_PROCESSING:PT15M}
+      max-pages: ${ONRELEARN_MATERIAL_EXTRACTION_MAX_PAGES:300}
+      max-chars-per-page: ${ONRELEARN_MATERIAL_EXTRACTION_MAX_CHARS_PER_PAGE:100000}
+  storage:
+    supabase:
+      url: ${SUPABASE_URL:}
+      service-key: ${SUPABASE_SERVICE_ROLE_KEY:}
+      bucket: ${ONRELEARN_MATERIAL_BUCKET:materials}
+      timeout: ${ONRELEARN_STORAGE_TIMEOUT:PT10S}
+      signed-url-ttl-seconds: ${ONRELEARN_SIGNED_URL_TTL_SECONDS:600}
+  auth:
+    cookie:
+      secure: ${ONRELEARN_AUTH_COOKIE_SECURE:false}
+    jwt:
+      secret: ${JWT_SECRET:}
+      ttl: PT3H

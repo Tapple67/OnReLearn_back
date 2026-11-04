@@ -1,0 +1,148 @@
+{
+  "type": "json_schema",
+  "name": "quiz_result",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "title": {
+        "type": "string"
+      },
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "mcq",
+                "tf",
+                "short"
+              ]
+            },
+            "question": {
+              "type": "string"
+            },
+            "choices": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "answerKey": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "correctIndex": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "correctIndex"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "correct": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "correct"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "accepted": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "accepted"
+                  ]
+                }
+              ]
+            },
+            "explanation": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            },
+            "points": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "evidence": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "note",
+                    "mixed",
+                    "pdf"
+                  ]
+                },
+                "page": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "quote": {
+                  "type": "string",
+                  "minLength": 12
+                }
+              },
+              "required": [
+                "source",
+                "page",
+                "quote"
+              ]
+            },
+            "signalHits": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "question",
+            "choices",
+            "answerKey",
+            "explanation",
+            "topic",
+            "points",
+            "evidence",
+            "signalHits"
+          ]
+        }
+      }
+    },
+    "required": [
+      "title",
+      "items"
+    ]
+  }
+}
