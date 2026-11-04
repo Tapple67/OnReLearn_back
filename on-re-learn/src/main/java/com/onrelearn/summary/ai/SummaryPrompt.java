@@ -7,7 +7,7 @@ import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.json.JsonMapper;
 
 public final class SummaryPrompt {
-    public static final String VERSION = "summary.v17-memo-explanations";
+    public static final String VERSION = "summary.v18-rewrite";
     private final String template;
     private final JsonMapper json = JsonMapper.builder().build();
 
@@ -28,7 +28,7 @@ public final class SummaryPrompt {
             var row = pages.addObject();
             row.put("page", page.page());
             row.put("pdfText", page.pdfText());
-            // ! Notes steer which source text is selected; GroundedSummary still accepts PDF quotes only.
+            // ! Notes steer what is covered; GroundedSummary still accepts PDF quotes only as evidence.
             row.put("note", SummaryNoteLinks.promptSafe(page.note()));
             row.set("noteSignals", page.noteSignals() == null ? json.nullNode() : page.noteSignals());
         }

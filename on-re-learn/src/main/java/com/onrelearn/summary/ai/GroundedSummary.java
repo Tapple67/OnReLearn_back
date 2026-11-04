@@ -4,20 +4,29 @@ import com.onrelearn.ai.SourceEvidence;
 import com.onrelearn.summary.service.SummaryInput;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-// * Publish only concise excerpts reconstructed from complete source sentences.
+// * Publish rewritten sentences that pass the source checks; a line without one falls back to a verified excerpt.
 public final class GroundedSummary {
     private static final int MAX_ITEMS_PER_BATCH=8;
+    private static final int MAX_CLAIMS_PER_BATCH=60;
+    private static final int MAX_SUB_POINTS=6;
+    private static final int MIN_SENTENCE_LENGTH=8;
+    private static final int MAX_SENTENCE_LENGTH=300;
     private static final int MAX_EXCERPT_LENGTH=360;
     private static final int MAX_EXPLANATION_LENGTH=600;
+    private static final Pattern PAGE_MARK=Pattern.compile("\\s*\\(?\\bp\\.?\\s*\\d+\\)?");
+    private static final Pattern LEADING_MARK=Pattern.compile("^(?:#{1,6}|>|[-•]|\\*(?!\\*)|\\d+[.)]|[a-zA-Z][.)])\\s+");
     private final SummaryInput input;
     private final Consumer<String> publish;
     private final int sectionNumber;
     private final SummaryOutline.Section plannedSection;
     private int subsectionNumber;
+    private int claimNumber;
     private SummaryNoteLinks noteLinks;
     private String previousTopic="";
     private final StringBuilder pending=new StringBuilder(), accepted=new StringBuilder();
@@ -62,6 +71,7 @@ public final class GroundedSummary {
             int page=value.path("page").asInt();
             var source=input.pages().stream().filter(p -> p.page()==page).findFirst().orElse(null);
             if (source==null || source.pdfText().isBlank()) return;
+            if (value.path("claim").isString()) { publishClaim(value,source); return; }
             String quote=SourceEvidence.normalize(value.path("quote").asString());
             String paragraph=SourceEvidence.paragraph(source.pdfText(),quote);
             if (paragraph==null) return;
@@ -91,8 +101,79 @@ public final class GroundedSummary {
             publish(page,paragraph,category,verifiedNote ? note : "",section,topic,SourceEvidence.normalize(value.path("easy").asString("")));
         } catch (tools.jackson.core.JacksonException ignored) { /* ! Malformed/unsupported paragraphs are excluded, never displayed. */ }
     }
+    // * A rewritten sentence is shown only with evidence on its page. A rejected point takes its sub-points with it.
+    private void publishClaim(JsonNode value, SummaryInput.Page source) {
+        String claim=sentence(value.path("claim").asString(""));
+        if (!grounded(claim,source,value.path("quote").asString(""))) return;
+        if (seen.size()>=MAX_CLAIMS_PER_BATCH || !seen.add(SourceEvidence.compact(claim))) return;
+        String section=title(value.path("section").asString(""),70,input.pages());
+        String topic=title(value.path("topic").asString(""),60,List.of(source));
+        var text=new StringBuilder(heading(section,topic.isEmpty() ? "핵심 내용" : topic));
+        text.append(++claimNumber).append(". ").append(claim).append(" (p.").append(source.page()).append(")\n\n");
+        int letters=0;
+        for (var sub : value.path("sub")) {
+            if (letters>=MAX_SUB_POINTS) break;
+            int subPage=sub.path("page").canConvertToInt() ? sub.path("page").asInt() : source.page();
+            var subSource=input.pages().stream().filter(p -> p.page()==subPage).findFirst().orElse(null);
+            String point=sentence(sub.path("claim").asString(""));
+            if (subSource==null || !grounded(point,subSource,sub.path("quote").asString(""))) continue;
+            if (!seen.add(SourceEvidence.compact(point))) continue;
+            text.append("  ").append((char) ('a'+letters++)).append(". ").append(point).append(" (p.").append(subPage).append(")\n\n");
+        }
+        if (noteLinks!=null) {
+            String concept=topic+" "+claim+" "+SourceEvidence.normalize(value.path("quote").asString(""));
+            text.append(explanation(source.page(),concept,SourceEvidence.normalize(value.path("easy").asString(""))));
+            text.append(noteLinks.takeFor(source.page(),concept));
+        }
+        accepted.append(text);
+        publish.accept(text.toString());
+    }
+
+    // ! Overlap shows the sentence comes from this page, not that it is true; the page chip lets the learner check it.
+    private static boolean grounded(String claim, SummaryInput.Page source, String quote) {
+        return !claim.isEmpty() && SourceEvidence.quoted(source.pdfText(),quote)
+                && SourceEvidence.supports(claim,source.pdfText()) && SourceEvidence.related(claim,quote)
+                && SourceEvidence.numbersAppear(claim,source.pdfText())
+                && SourceEvidence.negationKept(claim,source.pdfText(),quote);
+    }
+
+    // * The stored text is parsed line by line, so a sentence keeps only bold and cannot start its own structure.
+    private static String sentence(String raw) {
+        String text=PAGE_MARK.matcher(SourceEvidence.normalize(raw)).replaceAll("").strip();
+        while (LEADING_MARK.matcher(text).find()) text=LEADING_MARK.matcher(text).replaceFirst("");
+        text=text.replace("`","").replaceAll("(?<!\\*)\\*(?!\\*)","");
+        if ((text.length()-text.replace("**","").length())%4!=0) text=text.replace("**","");
+        return text.length()<MIN_SENTENCE_LENGTH || text.length()>MAX_SENTENCE_LENGTH ? "" : text;
+    }
+
+    private static String title(String raw, int limit, List<SummaryInput.Page> sources) {
+        String text=SourceEvidence.normalize(raw).replace("*","").replace("`","");
+        while (LEADING_MARK.matcher(text).find()) text=LEADING_MARK.matcher(text).replaceFirst("");
+        if (text.length()<2 || text.length()>limit) return "";
+        String candidate=text;
+        return sources.stream().anyMatch(page -> SourceEvidence.related(candidate,page.pdfText())) ? candidate : "";
+    }
+
     private void publish(int page, String paragraph) {
         publish(page, paragraph, "", "", "", "", "");
+    }
+
+    private String heading(String section, String subheading) {
+        String heading="";
+        if (accepted.isEmpty() && subsectionNumber==0) {
+            var sectionPages=plannedSection==null ? input.pages() : plannedSection.pages();
+            int first=sectionPages.get(0).page();
+            int last=sectionPages.get(sectionPages.size()-1).page();
+            String range=first==last ? String.valueOf(first) : first+"–"+last;
+            String title=plannedSection!=null ? plannedSection.title() : section.isEmpty() ? "핵심 정리" : section;
+            heading="## "+sectionNumber+". "+title+" · "+range+"쪽\n\n";
+        }
+        if (!subheading.equals(previousTopic)) {
+            previousTopic=subheading;
+            claimNumber=0;
+            heading+="### "+sectionNumber+"."+(++subsectionNumber)+" "+subheading+"\n\n";
+        }
+        return heading;
     }
 
     // * The excerpt stays source-verified. The explanation below it is labeled as AI-written, not as source text.
@@ -104,22 +185,9 @@ public final class GroundedSummary {
 
     private void publish(int page, String paragraph, String label, String note, String section, String topic, String easy) {
         if (seen.size()>=MAX_ITEMS_PER_BATCH || !seen.add(page+":"+paragraph)) return;
-        String heading="";
-        if (accepted.isEmpty() && subsectionNumber==0) {
-            var sectionPages=plannedSection==null ? input.pages() : plannedSection.pages();
-            int first=sectionPages.get(0).page();
-            int last=sectionPages.get(sectionPages.size()-1).page();
-            String range=first==last ? String.valueOf(first) : first+"–"+last;
-            String title=plannedSection!=null ? plannedSection.title() : section.isEmpty() ? "핵심 정리" : section;
-            heading="## "+sectionNumber+". "+title+" · "+range+"쪽\n\n";
-        }
         String subheading=topic.isEmpty() ? label.replace(" · ","") : topic;
         if (subheading.isEmpty()) subheading="원문 핵심";
-        if (!subheading.equals(previousTopic)) {
-            previousTopic=subheading;
-            heading+="### "+sectionNumber+"."+(++subsectionNumber)+" "+subheading+"\n\n";
-        }
-        String verified=heading+"- "+(topic.isEmpty() ? label : "")+paragraph+" (p."+page+")\n\n";
+        String verified=heading(section,subheading)+"- "+(topic.isEmpty() ? label : "")+paragraph+" (p."+page+")\n\n";
         if (noteLinks!=null) {
             verified+=explanation(page,topic+" "+paragraph,easy);
             verified+=noteLinks.takeFor(page,topic+" "+paragraph);
