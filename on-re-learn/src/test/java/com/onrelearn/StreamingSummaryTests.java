@@ -61,7 +61,8 @@ class StreamingSummaryTests {
             var early=new ArrayList<Integer>();
             var result=ai.generate(new SummaryInput("material","subject",1,"title",SummaryPrompt.VERSION,pages),text -> early.add(requests.size()));
             assertEquals(10,requests.size());assertEquals(1,early.get(0));
-            assertEquals(10,result.content().split("핵심 정리",-1).length-1);
+            // * 제목을 정하지 못한 묶음들은 같은 절로 이어 붙여 "핵심 정리"를 반복하지 않는다.
+            assertEquals(1,result.content().split("핵심 정리",-1).length-1);
             for(int n=1;n<=78;n++) {
                 String all=String.join("",requests);
                 assertEquals(1,all.split("PAGE_"+n+"_PDF",-1).length-1);

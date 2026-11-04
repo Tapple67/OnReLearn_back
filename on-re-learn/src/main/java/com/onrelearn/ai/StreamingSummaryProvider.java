@@ -57,7 +57,7 @@ public final class StreamingSummaryProvider implements SummaryProvider {
         long deadline=System.nanoTime()+Duration.ofMinutes(15).toNanos();
         StringBuilder combined=new StringBuilder();
         SummaryOutline.Section activeSection=null;
-        int subsectionCount=0;
+        var continuation=GroundedSummary.Continuation.start();
         SummaryNoteLinks noteLinks=sections.isEmpty() ? new SummaryNoteLinks(input.pages(),false) : null;
         var parts=new java.util.ArrayList<SummaryInput>();
         for (var batch : batches) {
@@ -78,7 +78,8 @@ public final class StreamingSummaryProvider implements SummaryProvider {
             var batch=batches.get(index);
             if (batch.section()!=activeSection) {
                 activeSection=batch.section();
-                subsectionCount=0;
+                // * A section from the document's own outline starts fresh, but repeated sentences stay removed.
+                continuation=GroundedSummary.Continuation.start(continuation.claims());
                 noteLinks=new SummaryNoteLinks(activeSection.pages(),true);
             }
             if (System.nanoTime()>=deadline) throw failure(504);
@@ -86,8 +87,7 @@ public final class StreamingSummaryProvider implements SummaryProvider {
                 if (fetches[ahead]==null) fetches[ahead]=fetch(parts.get(ahead),deadline,workers);
             }
             var part=parts.get(index);
-            var verification=activeSection==null ? new GroundedSummary(part,delta,index+1)
-                    : new GroundedSummary(part,delta,activeSection,subsectionCount);
+            var verification=new GroundedSummary(part,delta,activeSection,continuation);
             verification.linkNotes(noteLinks);
             boolean retried=false;
             try {
@@ -114,7 +114,7 @@ public final class StreamingSummaryProvider implements SummaryProvider {
             }
             try {
                 combined.append(verification.finish());
-                subsectionCount=verification.subsectionCount();
+                continuation=verification.continuation();
             } catch (ResponseStatusException failure) {
                 LOG.warn("Summary batch {}/{} ended without verified excerpts", index+1, batches.size());
                 throw failure;

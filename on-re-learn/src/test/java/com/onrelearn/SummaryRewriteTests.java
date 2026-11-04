@@ -167,6 +167,47 @@ class SummaryRewriteTests {
         assertTrue(later.contains("### 2.2 해시 함수의 용도"), later);
         assertTrue(later.contains("1. 파일 체크섬"), later);
     }
+    private static Map<String, Object> placed(String text, String quote, String section, String topic) {
+        var fields = claim(1, text, quote); fields.put("section", section); fields.put("topic", topic);
+        return fields;
+    }
+    private static GroundedSummary batch(GroundedSummary.Continuation previous) {
+        return new GroundedSummary(new SummaryInput("m", "s", 1, "t", SummaryPrompt.VERSION,
+            List.of(new SummaryInput.Page(1, TEXT, "", null, null))), text -> {}, null, previous);
+    }
+    @Test void theSameSectionAcrossBatchesContinuesInsteadOfRepeatingItsHeading() {
+        var first = batch(GroundedSummary.Continuation.start());
+        first.append(line(placed(CLAIM, DEFINITION, "해시 함수", "해시 함수의 정의")));
+        assertTrue(first.finish().contains("## 1. 해시 함수 · 1쪽"));
+        var next = batch(first.continuation());
+        next.append(line(placed("결과는 해시 값 또는 해시 코드라고 부른다.", NAMES, "해시 함수", "해시 함수의 정의")));
+        next.append(line(placed("파일 체크섬 확인에 사용된다.", USES, "해시 함수", "해시 함수의 용도")));
+        String later = next.finish();
+        assertFalse(later.lines().anyMatch(text -> text.startsWith("## ")), later);
+        assertTrue(later.startsWith("2. 결과는"), later);
+        assertTrue(later.contains("### 1.2 해시 함수의 용도"), later);
+        assertTrue(later.contains("1. 파일 체크섬"), later);
+    }
+    @Test void aNewSectionTakesTheNextNumberAndRestartsItsSubsections() {
+        var first = batch(GroundedSummary.Continuation.start());
+        first.append(line(placed(CLAIM, DEFINITION, "해시 함수", "해시 함수의 정의")));
+        first.finish();
+        var next = batch(first.continuation());
+        next.append(line(placed("파일 체크섬 확인에 사용된다.", USES, "메시지 위변조", "체크섬")));
+        String later = next.finish();
+        assertTrue(later.contains("## 2. 메시지 위변조 · 1쪽"), later);
+        assertTrue(later.contains("### 2.1 체크섬"), later);
+        assertTrue(later.contains("1. 파일 체크섬"), later);
+    }
+    @Test void aSentenceRepeatedInALaterBatchIsDropped() {
+        var first = batch(GroundedSummary.Continuation.start());
+        first.append(line(placed(CLAIM, DEFINITION, "해시 함수", "해시 함수의 정의")));
+        first.finish();
+        var next = batch(first.continuation());
+        next.append(line(placed(CLAIM, DEFINITION, "해시 함수", "해시 함수의 정의")));
+        assertFalse(next.hasVerifiedExcerpts());
+        assertEquals(1, next.statistics().get("duplicate"));
+    }
     @Test void countsWhySentencesWereRejectedWithoutKeepingTheirText() {
         var gate = new GroundedSummary(new SummaryInput("m", "s", 1, "t", SummaryPrompt.VERSION,
             List.of(new SummaryInput.Page(1, TEXT, "", null, null))), text -> {});

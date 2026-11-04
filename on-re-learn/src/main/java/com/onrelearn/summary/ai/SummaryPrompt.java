@@ -7,7 +7,7 @@ import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.json.JsonMapper;
 
 public final class SummaryPrompt {
-    public static final String VERSION = "summary.v18-rewrite";
+    public static final String VERSION = "summary.v19-rewrite-merged";
     private final String template;
     private final JsonMapper json = JsonMapper.builder().build();
 

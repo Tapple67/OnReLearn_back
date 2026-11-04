@@ -23,7 +23,10 @@ public final class GroundedSummary {
     private static final Pattern LEADING_MARK=Pattern.compile("^(?:#{1,6}|>|[-•]|\\*(?!\\*)|\\d+[.)]|[a-zA-Z][.)])\\s+");
     private final SummaryInput input;
     private final Consumer<String> publish;
-    private final int sectionNumber;
+    private int sectionNumber;
+    private String sectionTitle;
+    private final String previousTitle;
+    private final Set<String> documentClaims;
     private final SummaryOutline.Section plannedSection;
     private int subsectionNumber;
     private int claimNumber;
@@ -52,6 +55,30 @@ public final class GroundedSummary {
         this.sectionNumber=sectionNumber;
         this.plannedSection=plannedSection;
         this.subsectionNumber=subsectionCount;
+        this.previousTitle=null;
+        this.documentClaims=new HashSet<>();
+    }
+
+    // * Batches are split by size, so a topic can cross a boundary. Each batch carries on from the previous one.
+    public GroundedSummary(SummaryInput input, Consumer<String> publish, SummaryOutline.Section section, Continuation previous) {
+        this.input=input;
+        this.publish=publish;
+        this.plannedSection=section;
+        this.previousTitle=previous.title();
+        this.documentClaims=previous.claims();
+        this.sectionNumber=section!=null ? section.number() : Math.max(1,previous.section());
+        this.subsectionNumber=previous.subsection();
+        this.previousTopic=previous.topic();
+        this.claimNumber=previous.claim();
+    }
+
+    public record Continuation(int section, String title, int subsection, String topic, int claim, Set<String> claims) {
+        public static Continuation start() { return start(new HashSet<>()); }
+        public static Continuation start(Set<String> claims) { return new Continuation(0,null,0,"",0,claims); }
+    }
+
+    public Continuation continuation() {
+        return new Continuation(sectionNumber,sectionTitle,subsectionNumber,previousTopic,claimNumber,documentClaims);
     }
 
     public void linkNotes(SummaryNoteLinks links) { this.noteLinks=links; }
@@ -106,7 +133,8 @@ public final class GroundedSummary {
     private void publishClaim(JsonNode value, SummaryInput.Page source) {
         String claim=sentence(value.path("claim").asString(""));
         if (!grounded(claim,source,value.path("quote").asString(""))) return;
-        if (seen.size()>=MAX_CLAIMS_PER_BATCH || !seen.add(SourceEvidence.compact(claim))) { count("duplicate"); return; }
+        if (seen.size()>=MAX_CLAIMS_PER_BATCH || !documentClaims.add(SourceEvidence.compact(claim))) { count("duplicate"); return; }
+        seen.add(SourceEvidence.compact(claim));
         count("accepted");
         String section=title(value.path("section").asString(""),70,input.pages());
         String topic=title(value.path("topic").asString(""),60,List.of(source));
@@ -120,7 +148,7 @@ public final class GroundedSummary {
             String point=sentence(sub.path("claim").asString(""));
             if (subSource==null) { count("quote"); continue; }
             if (!grounded(point,subSource,sub.path("quote").asString(""))) continue;
-            if (!seen.add(SourceEvidence.compact(point))) { count("duplicate"); continue; }
+            if (!documentClaims.add(SourceEvidence.compact(point))) { count("duplicate"); continue; }
             count("accepted");
             text.append("  ").append((char) ('a'+letters++)).append(". ").append(point).append(" (p.").append(subPage).append(")\n\n");
         }
@@ -172,13 +200,23 @@ public final class GroundedSummary {
 
     private String heading(String section, String subheading) {
         String heading="";
-        if (accepted.isEmpty() && subsectionNumber==0) {
-            var sectionPages=plannedSection==null ? input.pages() : plannedSection.pages();
-            int first=sectionPages.get(0).page();
-            int last=sectionPages.get(sectionPages.size()-1).page();
-            String range=first==last ? String.valueOf(first) : first+"–"+last;
+        if (accepted.isEmpty()) {
             String title=plannedSection!=null ? plannedSection.title() : section.isEmpty() ? "핵심 정리" : section;
-            heading="## "+sectionNumber+". "+title+" · "+range+"쪽\n\n";
+            boolean continues=previousTitle!=null && SourceEvidence.compact(previousTitle).equals(SourceEvidence.compact(title));
+            if (previousTitle!=null && !continues) {
+                sectionNumber=plannedSection!=null ? plannedSection.number() : sectionNumber+1;
+                subsectionNumber=0;
+                previousTopic="";
+                claimNumber=0;
+            }
+            sectionTitle=continues ? previousTitle : title;
+            if (!continues && subsectionNumber==0) {
+                var sectionPages=plannedSection==null ? input.pages() : plannedSection.pages();
+                int first=sectionPages.get(0).page();
+                int last=sectionPages.get(sectionPages.size()-1).page();
+                String range=first==last ? String.valueOf(first) : first+"–"+last;
+                heading="## "+sectionNumber+". "+title+" · "+range+"쪽\n\n";
+            }
         }
         if (!subheading.equals(previousTopic)) {
             previousTopic=subheading;
