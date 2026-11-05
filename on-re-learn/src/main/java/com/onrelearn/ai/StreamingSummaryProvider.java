@@ -16,6 +16,7 @@ import tools.jackson.databind.json.JsonMapper;
 public final class StreamingSummaryProvider implements SummaryProvider {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(StreamingSummaryProvider.class);
     private static final int SPARSE_PAGE_CHARS = 100;
+    private static final Duration[] OVERLOAD_WAITS = {Duration.ofSeconds(2),Duration.ofSeconds(4),Duration.ofSeconds(8)};
     private final String provider, endpoint, key, model, reasoning;
     private final Duration idle;
     private final int batchPages, batchChars, concurrency;
@@ -104,13 +105,13 @@ public final class StreamingSummaryProvider implements SummaryProvider {
                         || Thread.currentThread().isInterrupted()) throw failure;
                 LOG.warn("Retrying summary batch {}/{} after status {}", index+1, batches.size(), failure.getStatusCode().value());
                 verification.discardIncompleteLine();
-                streamBatch(part,verification::append,deadline);
+                retryBatch(part,verification,deadline,failure);
                 verification.finishLine();
                 retried=true;
             }
             if (!verification.hasVerifiedExcerpts() && !retried && System.nanoTime()<deadline) {
                 LOG.warn("Retrying summary batch {}/{} after no verified excerpts", index+1, batches.size());
-                streamBatch(part,verification::append,deadline);
+                retryBatch(part,verification,deadline,null);
                 verification.finishLine();
             }
             LOG.info("Summary batch {}/{}: {}", index+1, batches.size(), verification.statistics());
@@ -219,6 +220,26 @@ public final class StreamingSummaryProvider implements SummaryProvider {
         }
     }
 
+    // * Overload usually clears in seconds, so it waits and tries again. Any other failure ends here as before.
+    private void retryBatch(SummaryInput part, GroundedSummary verification, long deadline, RuntimeException cause) {
+        RuntimeException last=cause;
+        int waits=0;
+        while (true) {
+            if (last instanceof OverloadedStreamFailure) {
+                if (waits==OVERLOAD_WAITS.length || System.nanoTime()>=deadline) throw last;
+                try { Thread.sleep(OVERLOAD_WAITS[waits++].toMillis()); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw failure(503); }
+            }
+            try {
+                streamBatch(part,verification::append,deadline);
+                return;
+            } catch (OverloadedStreamFailure again) {
+                verification.discardIncompleteLine();
+                last=again;
+            }
+        }
+    }
+
     private void streamBatch(SummaryInput input, Consumer<String> sink, long deadline) {
         streamText(prompt.render(input),sink,deadline);
     }
@@ -252,7 +273,7 @@ public final class StreamingSummaryProvider implements SummaryProvider {
                     .send(request,HttpResponse.BodyHandlers.ofInputStream());
             try (var stream=response.body()) {
                 if (response.statusCode()!=200) LOG.warn("Summary provider returned HTTP {}", response.statusCode());
-                if (response.statusCode()==429 || response.statusCode()>=500) throw new RetryableStreamFailure(502);
+                if (response.statusCode()==429 || response.statusCode()>=500) throw new OverloadedStreamFailure();
                 if (response.statusCode()!=200) throw failure(502);
                 // ! Bound inactivity and total runtime; partial output is never persisted as a success.
                 timer.scheduleAtFixedRate(() -> {
@@ -272,12 +293,19 @@ public final class StreamingSummaryProvider implements SummaryProvider {
                     var node=json.readTree(event);
                     String chunk="";
                     if (gemini) {
-                        if (node.path("promptFeedback").has("blockReason") || node.has("error")) throw failure(502);
+                        if (node.path("promptFeedback").has("blockReason") || node.has("error")) {
+                            LOG.warn("Summary provider stream failed: blockReason={}, code={}, status={}", safeCode(node.path("promptFeedback").path("blockReason")),
+                                    safeCode(node.path("error").path("code")), safeCode(node.path("error").path("status")));
+                            int code=node.path("error").path("code").asInt(0);
+                            // ! A 200 stream can still carry the provider's overload error.
+                            if (code==429 || code>=500) throw new OverloadedStreamFailure();
+                            throw failure(502);
+                        }
                         var candidate=node.path("candidates").path(0);
                         String finish=candidate.path("finishReason").asString("");
                         if (finish.equals("MAX_TOKENS")) throw new RetryableStreamFailure(502);
                         if (!finish.isEmpty() && !finish.equals("STOP")) {
-                            LOG.warn("Summary provider ended without a successful finish");
+                            LOG.warn("Summary provider ended without a successful finish: finishReason={}", safeCode(candidate.path("finishReason")));
                             throw failure(502);
                         }
                         completed |= finish.equals("STOP");
@@ -286,7 +314,12 @@ public final class StreamingSummaryProvider implements SummaryProvider {
                         String type=node.path("type").asString("");
                         if (type.equals("response.output_text.delta")) chunk=node.path("delta").asString("");
                         if (type.equals("response.completed")) completed=true;
-                        if (type.equals("error") || type.equals("response.failed") || type.equals("response.incomplete") || type.contains("refusal")) throw failure(502);
+                        if (type.equals("error") || type.equals("response.failed") || type.equals("response.incomplete") || type.contains("refusal")) {
+                            var error=node.path("response").path("error");
+                            LOG.warn("Summary provider stream failed: type={}, code={}, reason={}", safeCode(node.path("type")),
+                                    safeCode(error.isObject() ? error.path("code") : node.path("code")), safeCode(node.path("response").path("incomplete_details").path("reason")));
+                            throw failure(502);
+                        }
                     }
                     if (!chunk.isEmpty()) sink.accept(chunk);
                     if (completed) break;
@@ -298,10 +331,18 @@ public final class StreamingSummaryProvider implements SummaryProvider {
         catch(InterruptedException exception) { Thread.currentThread().interrupt(); throw failure(503); }
         finally { timer.shutdownNow(); }
     }
-    private static final class RetryableStreamFailure extends ResponseStatusException {
+    // ! Only short fixed codes reach the log: never the provider's message, which can quote the document.
+    private static String safeCode(tools.jackson.databind.JsonNode value) {
+        String code=value.asString("");
+        return code.matches("[A-Za-z0-9_.-]{1,64}") ? code : "-";
+    }
+    private static class RetryableStreamFailure extends ResponseStatusException {
         RetryableStreamFailure(int status) {
             super(HttpStatus.valueOf(status), status==504 ? "Summary provider timed out" : "Summary stream interrupted");
         }
+    }
+    private static final class OverloadedStreamFailure extends RetryableStreamFailure {
+        OverloadedStreamFailure() { super(502); }
     }
     private ResponseStatusException failure(int status) { return new ResponseStatusException(HttpStatus.valueOf(status), status==504 ? "Summary provider timed out" : "Summary provider unavailable"); }
 }

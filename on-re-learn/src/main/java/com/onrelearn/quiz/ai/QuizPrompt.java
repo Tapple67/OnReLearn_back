@@ -6,9 +6,9 @@ import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.json.JsonMapper;
 
 public final class QuizPrompt {
-    public static final String VERSION = "quiz_v12_memo_requests";
+    public static final String VERSION = "quiz_v13_even_pages";
     // * Sets from these versions passed source checks, so the list does not ask to regenerate them.
-    private static final java.util.Set<String> GROUNDED_VERSIONS = java.util.Set.of(VERSION, "quiz_v11_memo_aware", "quiz_v10_source_based", "quiz_v9_grounded_concepts");
+    private static final java.util.Set<String> GROUNDED_VERSIONS = java.util.Set.of(VERSION, "quiz_v12_memo_requests", "quiz_v11_memo_aware", "quiz_v10_source_based", "quiz_v9_grounded_concepts");
     public static boolean grounded(String version) { return version != null && GROUNDED_VERSIONS.contains(version); }
     private final JsonMapper json = JsonMapper.builder().build();
     private final String template = load("generation");

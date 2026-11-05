@@ -18,7 +18,8 @@ public final class GroundedQuiz {
         ANSWER_MISMATCH("정답이 인용 페이지 내용과 연결되지 않았다. 인용 페이지에 근거가 있는 정답을 쓴다"),
         INVALID_CHOICE("보기가 중복이거나 자료와 무관했다. 자료에 나오는 개념으로 서로 다른 보기를 쓴다"),
         DUPLICATE_QUESTION("같은 문제를 반복했다. 다른 개념이나 판단을 묻는다"),
-        INVALID_QUESTION("문제가 인용 문단과 무관하거나 페이지·빈칸 형식이었다. 인용 문단의 개념을 묻는다");
+        QUESTION_FORMAT("문제에 페이지 표시나 빈칸을 넣었다. 위치를 언급하지 말고 개념을 묻는다"),
+        INVALID_QUESTION("문제가 인용 문단과 무관했다. 인용 문단에 나오는 용어로 그 개념을 묻는다");
 
         private final String guidance;
         Rejection(String guidance) { this.guidance = guidance; }
@@ -107,15 +108,20 @@ public final class GroundedQuiz {
             }
             int page=located.page();
             String paragraph=located.paragraph();
-            var matched = context.memoFocus().stream().filter(focus -> focus.matches(page, paragraph)).toList();
+            // * Judge what the item asks and quotes: the paragraph can be a whole page, which would count every item on it.
+            String asked = item.path("question").asString() + " " + evidence.path("quote").asString();
+            var matched = context.memoFocus().stream().filter(focus -> focus.matches(page, asked)).toList();
             if (!matched.isEmpty() && memoCount >= QuizPrompt.memoLimit(spec)) {
                 reject(rejected, type, Rejection.MEMO_LIMIT);
                 continue;
             }
             String question = SourceEvidence.normalize(item.path("question").asString());
             if (question.contains("[빈칸]") || question.contains("원문 페이지 대조")
-                    || question.matches(".*(?:p\\.\\s*\\d+|\\d+\\s*쪽).*")
-                    || !SourceEvidence.related(question, paragraph)) {
+                    || question.matches(".*(?:p\\.\\s*\\d+|\\d+\\s*쪽).*")) {
+                reject(rejected, type, Rejection.QUESTION_FORMAT);
+                continue;
+            }
+            if (!SourceEvidence.related(question, paragraph)) {
                 reject(rejected, type, Rejection.INVALID_QUESTION);
                 continue;
             }

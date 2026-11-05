@@ -13,6 +13,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 public final class AiQuizProvider implements QuizProvider {
     private static final int MAX_GROUNDING_REPAIRS = 2;
+    private static final int REPAIR_SPARES = 2;
     private final AiTextClient generator, critic;
     private final String model, criticModel;
     private final boolean reviewEnabled;
@@ -68,13 +69,19 @@ public final class AiQuizProvider implements QuizProvider {
             } catch (GroundedQuiz.Shortfall rejected) {
                 if (repairs == MAX_GROUNDING_REPAIRS) throw rejected;
                 stage.accept("grounding_retry");
-                JsonNode repair = parsed(generator, prompt.groundingRepair(context, rejected.missing(), focus,
+                JsonNode repair = parsed(generator, prompt.groundingRepair(context, withSpares(rejected.missing()), focus,
                         rejected.guidance(), rejected.acceptedQuestions()), generationFormat, QuizOutputValidator::validateStructure);
                 stage.accept("grounding");
                 candidates = GroundedQuiz.combine(candidates, repair);
             }
         }
     }
+
+    // * Asking for exactly what is missing fails again on one more rejection; verification drops any surplus.
+    private static QuizSpec withSpares(QuizSpec missing) {
+        return new QuizSpec(spared(missing.mcqCount()), spared(missing.tfCount()), spared(missing.shortCount()));
+    }
+    private static int spared(int count) { return count == 0 ? 0 : count + REPAIR_SPARES; }
 
     private JsonNode parsed(AiTextClient client, String text, JsonNode format, Consumer<JsonNode> validate) {
         for (int attempt = 0; ; attempt++) {

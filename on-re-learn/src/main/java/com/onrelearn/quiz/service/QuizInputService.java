@@ -64,6 +64,9 @@ public class QuizInputService {
                 purpose, focus, sourceTopics, sourceItemIds, reviewAttemptId);
     }
 
+    private static final java.util.regex.Pattern CITATION = java.util.regex.Pattern.compile("\\(p\\.(\\d{1,9})\\)");
+    private static final int CITED_PAGE_LIMIT = 12;
+
     public static QuizContext groundedContext(String summary, SummaryInput packet, List<Double> preferredPages) {
         var selected=QuizContext.assemble(summary,packet,preferredPages);
         var memoFocus = SummaryNoteLinks.quizFocus(packet.pages());
@@ -72,12 +75,14 @@ public class QuizInputService {
         memoFocus.forEach(focus -> selectedPages.add(focus.page()));
         // * Give general quizzes the original text for pages cited in the study summary.
         if (preferredPages.isEmpty()) {
-            var citations = java.util.regex.Pattern.compile("\\(p\\.(\\d{1,9})\\)").matcher(summary);
+            var citations = CITATION.matcher(summary);
             var citedPages = new java.util.LinkedHashSet<Integer>();
             while (citations.find()) citedPages.add(Integer.parseInt(citations.group(1)));
-            packet.pages().stream().filter(page -> citedPages.contains(page.page())
-                    && !page.pdfText().isBlank() && !selectedPages.contains(page.page()))
-                    .limit(12).toList().forEach(page -> selectedPages.add(page.page()));
+            var cited = packet.pages().stream().filter(page -> citedPages.contains(page.page())
+                    && !page.pdfText().isBlank() && !selectedPages.contains(page.page())).toList();
+            // * Spread over the document, so a long PDF is not quizzed on its opening pages alone.
+            int picks = Math.min(cited.size(), CITED_PAGE_LIMIT);
+            for (int pick = 0; pick < picks; pick++) selectedPages.add(cited.get(pick * cited.size() / picks).page());
         }
         // * Keep independent PDF material available for the non-memo questions.
         if (!memoFocus.isEmpty()) {
@@ -87,7 +92,22 @@ public class QuizInputService {
         var originals = packet.pages().stream().filter(page -> selectedPages.contains(page.page()))
                 .map(page -> new QuizContext.SourcePage(page.page(), page.pdfText(),
                         SummaryNoteLinks.promptSafe(page.note()), page.noteSignals())).toList();
-        return new QuizContext(summary, selected.notes(), originals, memoFocus);
+        return new QuizContext(preferredPages.isEmpty() ? withinPages(summary, selectedPages) : summary, selected.notes(), originals, memoFocus);
+    }
+
+    // ! A summary line about a page the model cannot read invites questions no source can verify.
+    private static String withinPages(String summary, java.util.Set<Integer> pages) {
+        var kept = new StringBuilder();
+        for (String line : summary.split("(?<=\n)")) {
+            var citations = CITATION.matcher(line);
+            boolean cited = false, readable = false;
+            while (citations.find()) {
+                cited = true;
+                readable |= pages.contains(Integer.parseInt(citations.group(1)));
+            }
+            if (!cited || readable) kept.append(line);
+        }
+        return kept.toString();
     }
 
     // * Carry validated review identity with the same source snapshot used to build AI context.

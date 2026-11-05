@@ -28,10 +28,11 @@ class QuizPromptTests {
         assertTrue(prompt.contains("최대 1개"));
         assertFalse(prompt.contains("60%"));
         assertTrue(prompt.contains("evidence.page"));
-        assertEquals("quiz_v12_memo_requests",QuizPrompt.VERSION);
+        assertEquals("quiz_v13_even_pages",QuizPrompt.VERSION);
     }
     @Test void earlierGroundedConceptQuizzesAreNotFlaggedAsUnverified() {
         assertTrue(QuizPrompt.grounded(QuizPrompt.VERSION));
+        assertTrue(QuizPrompt.grounded("quiz_v12_memo_requests"));
         assertTrue(QuizPrompt.grounded("quiz_v11_memo_aware"));
         assertTrue(QuizPrompt.grounded("quiz_v10_source_based"));
         assertTrue(QuizPrompt.grounded("quiz_v9_grounded_concepts"));

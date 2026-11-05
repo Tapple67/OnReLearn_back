@@ -135,7 +135,7 @@ class QuizSourceBasedTests {
         var client = new Scripted(text(quiz(macQuestions(9))), text(quiz(tf("디지털 서명 판단", 1, SIGN))));
         assertEquals(10, generate(client, new QuizSpec(0, 10, 0)).output().path("items").size());
         assertEquals(2, client.prompts.size());
-        assertTrue(client.prompts.get(1).contains("- tf 1"));
+        assertTrue(client.prompts.get(1).contains("- tf 3"));
     }
     @Test void repairMayReturnMoreThanRequested() {
         var client = new Scripted(text(quiz(tf("메시지 인증코드 판단", 1, "없는 인용문이 여기에 들어갑니다"), tf("해시 함수 판단", 1, HASH))),
