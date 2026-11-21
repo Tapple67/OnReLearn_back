@@ -1,5 +1,6 @@
 -- JDBC startup initialization. Use the database selected by the datasource URL.
 -- Never drop/reset data. Existing table changes require reviewed ALTER statements.
+CREATE DATABASE IF NOT EXISTS onrelearn DEFAULT CHARACTER SET utf8mb4;
 
 -- ! No material FK: this receipt must survive deletion until storage cleanup succeeds.
 CREATE TABLE IF NOT EXISTS material_deletion (
