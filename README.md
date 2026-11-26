@@ -1,31 +1,73 @@
-# On Re:Learn 백엔드 전환 안내
+# On Re:Learn 백엔드
 
-현재 Spring Boot 프로젝트는 [on-re-learn](on-re-learn/README.md) 내부에 있다. 2026-09-30에 개발 MySQL onrelearn에서 JDBC SQL 초기화·JPA 검증·Spring 재기동과 상태 API 200 UP을 확인했다. 사용자가 같은 개발 DB의 합성 데이터 시험을 허용한 뒤 CRUD·제약·rollback 통합 시험 6건도 통과했다.
+On Re:Learn은 강의 PDF를 올리고 쪽마다 메모를 남기면, 그 메모를 반영한 요약과 퀴즈를 만들어 주는 학습 서비스다. 이 저장소는 Spring Boot API 서버이며 화면은 프론트엔드 저장소(`OnReLearn_front`)에 있다.
 
-1차 인증에서 회원가입 API와 기본 12개 학기 생성, 로그인 HTTP API까지 구현했다. 권한과 프론트 로그인 화면은 이어서 구현한다. 실제 검증 내용은 [내부 프로젝트 README](on-re-learn/README.md)를 따른다.
+## 작업 기간
 
-로그인 자격증명 비교 서비스도 추가해 기존 bcrypt 계정의 정상·오류 비밀번호를 실제 MySQL에서 검증했다.
+2025.09 ~
 
-JWT 발급·서명·만료 검증 서비스와 `POST /api/auth/login`의 HTTP-only 쿠키 발급을 추가했다. 키는 OS/IDE의 `JWT_SECRET`로 주입한다. 로그인 API의 입력 오류 400·자격증명 오류 401·설정 오류 503을 검증했다.
+## 기술 스택
 
-`GET /api/auth/me`에서 쿠키 서명과 회원 존재를 검사해 ID·이메일만 반환한다. 정상·누락·변조·삭제 계정 경로와 실제 MySQL 조회를 검증했다.
+| 구분 | 기술 |
+| --- | --- |
+| 언어·프레임워크 | Java 17, Spring Boot 4.1 (Spring MVC), Gradle |
+| 데이터 | MySQL, Spring Data JPA, JDBC 스키마 스크립트 |
+| 인증·보안 | Spring Security, JWT(HTTP-only 쿠키), CSRF 토큰, bcrypt |
+| 파일·문서 | Supabase Storage, Apache PDFBox |
+| AI | OpenAI API, Gemini API (WebClient 호출, SSE 스트리밍) |
 
-Spring Security의 `/api/**` 보호 필터를 추가했다. 상태·CSRF 조회·가입·로그인과 쿠키 정리용 로그아웃은 인증 없이 접근할 수 있고, 다른 API는 JWT 쿠키 인증이 필요하다. 로그아웃을 포함한 상태 변경 요청은 CSRF 토큰을 요구한다. SPA는 `/api/auth/csrf`의 읽기 가능한 `XSRF-TOKEN` 쿠키 값을 `X-XSRF-TOKEN` 헤더로 보낸다. 신규 의존성은 Boot BOM 관리 `spring-boot-starter-security`이며 [내부 README](on-re-learn/README.md)에 검증 결과를 기록했다.
+## 팀 구성
 
-실제 `onrelearn` MySQL의 합성 계정으로 Spring↔Vite↔브라우저 가입·로그인·새로고침·로그아웃·비로그인 재접근을 확인했다. 합성 계정은 별도 `cleanupSyntheticE2e` 시험으로 삭제 확인했다. 실행법과 보호 조건은 [내부 README](on-re-learn/README.md)에 기록했다.
+Re:Boot팀 [2인]
 
-같은 합성 이메일의 실제 MySQL 서비스 동시 가입 시험에서 성공 1건·중복 실패 1건과 기본 학기 12건을 확인하고 합성 계정을 정리했다.
 
-추가로 두 독립 CSRF 세션의 동시 HTTP 가입도 실제 Spring·MySQL에서 200·409 각 1건을 확인했다. 합성 계정은 시험 안에서 삭제·부재를 확인했다.
+## 주요 기능
 
-실제 HTTP에서 정상 JWT 200, 쿠키 누락·만료·변조 401과 로그아웃 CSRF 누락·오류 403/정상 200을 확인했다. 시험용 합성 회원은 삭제 확인했다.
+- **계정과 학습 공간**: 가입·로그인, 학기(기본 12개)·과목·자료 관리
+- **PDF 자료**: 업로드 후 저장소에 보관하고, 백그라운드 작업이 쪽별 텍스트를 추출한다. 자료를 지우면 하위 데이터와 파일을 함께 정리한다.
+- **메모**: PDF 쪽마다 메모를 저장한다.
+- **AI 요약**: 쪽 묶음 단위로 요약을 만들어 실시간으로 보여 준다. 학습 목표, 비교표, 원문 쪽 표시, 글자가 적은 쪽 안내가 들어간다.
+- **AI 퀴즈**: 객관식·OX·단답 문항을 만들고 풀이·저장·제출·채점을 처리한다. 결과에서 오답 복습과 취약 주제 복습 퀴즈를 만들 수 있다.
+- **학습 기록**: 날짜별 자료 학습 기록, 자료 통계, 학습 목표, 마이페이지
 
-가입·로그인·현재 사용자 조회의 예상 오류는 `shared/error/ApiExceptionHandler.java`가 공통으로 응답한다. 중요한 인증 흐름과 보안 제약에는 Better Comments `// *`·`// !` 주석을 달았다. 기존 상태 코드를 유지했고 `/api/auth/me`의 인증 설정 오류 503은 안전한 JSON 오류 본문을 반환한다. 세부 검증은 [내부 README](on-re-learn/README.md)에 있다.
+## 핵심 설계
 
-보호된 `GET /api/home`은 로그인 회원의 현재 학기·과목을 조회한다. 실제 MySQL에서 비로그인 401과 타 회원 과목 비노출을 검증했다. 실행·시험 결과는 [내부 README](on-re-learn/README.md)에 기록했다.
+- **AI 출력 검증**: 모델이 쓴 문장과 문항은 그대로 저장하지 않는다. 모델이 고른 쪽과 인용문을 실제 PDF 텍스트와 대조하고(`SourceEvidence`), 용어·숫자·부정 표현이 원문과 맞는 내용만 통과시킨다(`GroundedSummary`, `GroundedQuiz`). 근거가 부족하면 기존 저장본을 보존하고 오류를 돌려준다.
+- **메모 반영**: 쪽에 연결된 메모를 프롬프트에 넣어 원문 선택과 출제에 쓰고, 메모와 원문을 연결해 요약 안내와 퀴즈의 메모 문항을 만든다. 메모는 사실 근거로 쓰지 않는다.
+- **제공자 분리**: 요약·퀴즈 생성·검수마다 제공자(OpenAI/Gemini), 모델, timeout, 재시도를 따로 설정한다. 프롬프트는 `resources/prompts/`에 있고 버전으로 이전 결과와 구분한다.
+- **스트리밍**: 요약과 퀴즈 생성은 SSE로 진행 상황을 보낸다. 응답이 시작된 뒤의 오류는 안전한 `error` 이벤트로 보낸다.
+- **데이터 보호**: 모든 조회·변경은 소유자를 확인한다. 상태 변경 요청은 CSRF를 검사하고, 예상 가능한 오류는 공통 처리기에서 내부 정보 없이 응답한다.
 
-CSRF를 확인하는 `POST /api/auth/logout`은 만료된 JWT가 있어도 쿠키를 지울 수 있으며 `token`·`XSRF-TOKEN`을 만료한다. 쿠키 정책은 `AuthCookieService`에서 공유한다. 서버 측 JWT 폐기 목록은 아직 없으므로 유출 토큰의 재사용 가능성은 남는다.
+## 구조
 
-[전체 지침](../README.md), [기존 분석](../docs/legacy-analysis.md), [차수별 계획](../docs/migration-plan.md)을 따른다. application.properties의 Spring 자동 로딩만 허용됐으며 에이전트 직접 읽기·쓰기·복사는 금지다. .env 파일군은 자동 로딩까지 금지다.
+```
+on-re-learn/src/main/java/com/onrelearn/
+├── auth       가입·로그인·JWT·CSRF
+├── semester   학기
+├── subject    과목
+├── material   PDF 업로드·추출·삭제
+├── note       쪽별 메모
+├── summary    AI 요약
+├── quiz       AI 퀴즈 생성·풀이·채점
+├── ai         제공자 설정, 원문 대조
+├── activity   학습 기록
+├── stats·goal·profile·home   통계, 목표, 마이페이지, 홈
+└── shared     공통 오류 처리
+```
 
-설정 경로는 Java 코드가 아닌 `bootRun` 기본 실행 인수 또는 IDE/OS의 `SPRING_CONFIG_LOCATION`으로 전달한다. 외부 properties를 마지막에 로딩해 같은 키에서는 이 값이 우선한다. 자세한 명령은 [내부 프로젝트 README](on-re-learn/README.md)를 따른다.
+도메인마다 `controller → service → repository → entity` 순서로 나눈다. 데이터는 계정 → 학기 → 과목 → 자료로 이어지고, 쪽 텍스트·메모·요약·퀴즈 세트가 자료에, 문항·풀이·답안이 퀴즈 세트에 연결된다. 스키마 원본은 `src/main/resources/sql/onrelearn.sql`이다.
+
+## 실행 방법
+
+`on-re-learn` 폴더에서 실행한다. Windows는 `./gradlew.bat`을 쓴다.
+
+```bash
+./gradlew bootRun    # 127.0.0.1:8080
+./gradlew test       # DB 없이 도는 시험
+./gradlew bootJar    # 산출물: build-onrelearn/libs
+```
+
+- 기본 설정은 `src/main/resources/onrelearn.yml`에 있다.
+- DB 접속, JWT 비밀, AI·저장소 키는 `config/keys.example.yml`을 참고해 로컬 설정 파일이나 환경변수로 넣는다. 비밀 값은 저장소에 올리지 않는다.
+- MySQL에 `onrelearn` 데이터베이스가 있어야 한다. 테이블은 기동할 때 스키마 스크립트로 만든다.
+
