@@ -14,7 +14,7 @@ On Re:Learn은 강의 PDF를 올리고 쪽마다 메모를 남기면, 그 메모
 | 데이터 | MySQL, Spring Data JPA, JDBC 스키마 스크립트 |
 | 인증·보안 | Spring Security, JWT(HTTP-only 쿠키), CSRF 토큰, bcrypt |
 | 파일·문서 | Supabase Storage, Apache PDFBox |
-| AI | OpenAI API, Gemini API (WebClient 호출, SSE 스트리밍) |
+| AI | OpenAI API, Gemini API (HttpClient 호출, SSE 스트리밍) |
 
 ## 팀 구성
 
